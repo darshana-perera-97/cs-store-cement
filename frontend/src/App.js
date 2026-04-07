@@ -10,6 +10,7 @@ import CustomerTransactionsPage from './dashboard/CustomerTransactionsPage';
 import CustomersPage from './dashboard/CustomersPage';
 import LoadsPage from './dashboard/LoadsPage';
 import PaymentsPage from './dashboard/PaymentsPage';
+import PromotionsPage from './dashboard/PromotionsPage';
 import UsersPage from './dashboard/UsersPage';
 import StockPage from './dashboard/StockPage';
 
@@ -43,6 +44,7 @@ function AppRoutes() {
         <Route path="loads" element={<LoadsPage />} />
         <Route path="bills" element={<BillsPage />} />
         <Route path="payments" element={<PaymentsPage />} />
+        <Route path="promotions" element={<PromotionsPage />} />
         <Route path="users" element={<UsersPage />} />
       </Route>
       <Route

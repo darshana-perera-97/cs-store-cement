@@ -3,8 +3,12 @@ require('dotenv').config({ path: path.join(__dirname, '.env') });
 
 const express = require('express');
 const cors = require('cors');
-const { readStocks, writeStocks, toNonNegNumber, applyBillDeductionToLoads } = require('./stocksStore');
-const { rebuildAndPersistDailyStock } = require('./dailyStockStore');
+const { readStocks, writeStocks, toNonNegNumber } = require('./stocksStore');
+const {
+  refreshLiveStockFromSources,
+  getLiveStockSummary,
+  getLiveDailyLedgerPayload,
+} = require('./liveStockStore');
 const {
   readCustomers,
   writeCustomers,
@@ -12,7 +16,7 @@ const {
   defaultDueDateYmd,
 } = require('./customersStore');
 const { normalizeCustomerName, computeRemainingAmount } = require('./customerBalance');
-const { readBills, writeBills, lineTotal } = require('./billsStore');
+const { readBills, writeBills, lineTotal, sumBagsOnBillsForStockId } = require('./billsStore');
 const {
   readPayments,
   writePayments,
@@ -29,6 +33,7 @@ const {
   deleteUserById,
   toPublicUser,
 } = require('./usersStore');
+const { readPromotions, writePromotions } = require('./promotionsStore');
 
 const app = express();
 const PORT = Number(process.env.PORT) || 1248;
@@ -123,6 +128,41 @@ function addDaysToYmd(ymd, days) {
   const mo = String(d.getMonth() + 1).padStart(2, '0');
   const dd = String(d.getDate()).padStart(2, '0');
   return `${y}-${mo}-${dd}`;
+}
+
+const BILL_BAG_BRANDS = ['tokyo', 'samudra', 'atlas', 'nippon'];
+
+/**
+ * New bill must not exceed original load bags minus prior bills for the same stock ID.
+ * Load rows in loads.json are not reduced when saving bills.
+ */
+function validateBillAgainstLoadedStock(loads, existingBills, stockId, billBagFields) {
+  const sid = String(stockId ?? '').trim();
+  if (!sid) return { ok: true };
+
+  const load = loads.find((s) => String(s.stockId || '').trim() === sid);
+  if (!load) {
+    return {
+      ok: false,
+      error: `No load with Stock ID "${sid}". Add it on Loads or correct the Stock ID on the bill.`,
+    };
+  }
+
+  const used = sumBagsOnBillsForStockId(existingBills, sid);
+  for (const k of BILL_BAG_BRANDS) {
+    const field = `${k}Bags`;
+    const cap = toNonNegNumber(load[field]);
+    const already = used[k];
+    const need = toNonNegNumber(billBagFields[field]);
+    const left = cap - already;
+    if (need > left) {
+      return {
+        ok: false,
+        error: `Not enough ${k} bags on load ${sid}: ${Math.max(0, left)} left after earlier sales, this bill needs ${need}.`,
+      };
+    }
+  }
+  return { ok: true };
 }
 
 function daysFromDueToToday(dueYmd, todayYmd) {
@@ -688,6 +728,99 @@ app.post('/api/payments', async (req, res) => {
   }
 });
 
+/** Free-bag promotions: stored in promotions.json; reduces live stock / daily ledger “out” (no customer balance or cash). */
+app.get('/api/promotions', async (req, res) => {
+  try {
+    const rows = await readPromotions();
+    const sorted = [...rows].sort((a, b) => {
+      const da = String(a.date || '');
+      const db = String(b.date || '');
+      if (da !== db) return db.localeCompare(da);
+      return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+    });
+    res.json(sorted);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Failed to read promotions' });
+  }
+});
+
+app.post('/api/promotions', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const enteredBy = String(body.enteredBy ?? '').trim();
+    if (!enteredBy) {
+      return res.status(400).json({ error: 'enteredBy (username) is required' });
+    }
+    const customerId = String(body.customerId ?? '').trim();
+    if (!customerId) {
+      return res.status(400).json({ error: 'customerId is required' });
+    }
+
+    let date = String(body.date ?? '').trim();
+    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return res.status(400).json({ error: 'date must be YYYY-MM-DD' });
+    }
+
+    const reason = String(body.reason ?? '').trim();
+    if (!reason) {
+      return res.status(400).json({ error: 'reason is required' });
+    }
+
+    let billNumber = '';
+    if (body.billNumber != null && String(body.billNumber).trim() !== '') {
+      const norm = normalizePaymentBillNumber(body.billNumber);
+      if (!norm) {
+        return res.status(400).json({ error: 'billNumber must be 1–3 digits when provided' });
+      }
+      billNumber = norm;
+    }
+
+    const tokyoBags = toNonNegNumber(body.tokyoBags);
+    const samudraBags = toNonNegNumber(body.samudraBags);
+    const atlasBags = toNonNegNumber(body.atlasBags);
+    const nipponBags = toNonNegNumber(body.nipponBags);
+    const bagSum = tokyoBags + samudraBags + atlasBags + nipponBags;
+    if (bagSum <= 0) {
+      return res.status(400).json({ error: 'Enter at least one free bag (any brand).' });
+    }
+
+    const customers = await readCustomers();
+    const cust = customers.find((c) => c.id === customerId);
+    if (!cust) {
+      return res.status(400).json({ error: 'Customer not found' });
+    }
+
+    const row = {
+      id: `promo-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+      date,
+      customerId: cust.id,
+      customerName: cust.name,
+      billNumber,
+      reason,
+      tokyoBags,
+      samudraBags,
+      atlasBags,
+      nipponBags,
+      enteredBy,
+      createdAt: new Date().toISOString(),
+    };
+
+    const promos = await readPromotions();
+    promos.push(row);
+    await writePromotions(promos);
+    try {
+      await refreshLiveStockFromSources();
+    } catch (err) {
+      console.error('liveStock refresh after promotion', err);
+    }
+    res.status(201).json(row);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Failed to save promotion' });
+  }
+});
+
 app.get('/api/activity', async (req, res) => {
   try {
     const limit = Math.min(50, Math.max(1, parseInt(String(req.query.limit), 10) || 5));
@@ -827,20 +960,18 @@ app.post('/api/bills', async (req, res) => {
     };
 
     const stocks = await readStocks();
-    const deduct = applyBillDeductionToLoads(stocks, stockId, {
+    const bills = await readBills();
+    const check = validateBillAgainstLoadedStock(stocks, bills, stockId, {
       tokyoBags,
       samudraBags,
       atlasBags,
       nipponBags,
     });
-    if (!deduct.ok) {
-      return res.status(400).json({ error: deduct.error });
+    if (!check.ok) {
+      return res.status(400).json({ error: check.error });
     }
 
-    const bills = await readBills();
     bills.push(row);
-
-    await writeStocks(stocks);
     await writeBills(bills);
 
     const paymentsList = await readPayments();
@@ -855,9 +986,9 @@ app.post('/api/bills', async (req, res) => {
     await writeCustomers(customers);
 
     try {
-      await rebuildAndPersistDailyStock(stocks, bills);
-    } catch (e) {
-      console.error('daily stock rebuild after bill', e);
+      await refreshLiveStockFromSources();
+    } catch (err) {
+      console.error('liveStock refresh after bill', err);
     }
 
     res.status(201).json(row);
@@ -879,33 +1010,18 @@ app.get('/api/stocks', async (req, res) => {
 
 app.get('/api/daily-stock', async (req, res) => {
   try {
-    const payload = await rebuildAndPersistDailyStock();
+    const payload = await getLiveDailyLedgerPayload();
     res.json(payload);
   } catch (e) {
     console.error(e);
-    res.status(500).json({ error: 'Failed to build daily stock' });
+    res.status(500).json({ error: 'Failed to load daily stock' });
   }
 });
 
 app.get('/api/stocks/summary', async (req, res) => {
   try {
-    const stocks = await readStocks();
-    const totals = { tokyo: 0, samudra: 0, atlas: 0, nippon: 0 };
-    for (const row of stocks) {
-      totals.tokyo += toNonNegNumber(row.tokyoBags);
-      totals.samudra += toNonNegNumber(row.samudraBags);
-      totals.atlas += toNonNegNumber(row.atlasBags);
-      totals.nippon += toNonNegNumber(row.nipponBags);
-    }
-    res.json({
-      liveAt: new Date().toISOString(),
-      brands: [
-        { key: 'tokyo', label: 'Tokyo', bags: totals.tokyo },
-        { key: 'samudra', label: 'Samudra', bags: totals.samudra },
-        { key: 'atlas', label: 'Atlas', bags: totals.atlas },
-        { key: 'nippon', label: 'Nippon', bags: totals.nippon },
-      ],
-    });
+    const payload = await getLiveStockSummary();
+    res.json(payload);
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'Failed to summarize stock' });
@@ -951,9 +1067,9 @@ app.post('/api/stocks', async (req, res) => {
     stocks.push(row);
     await writeStocks(stocks);
     try {
-      await rebuildAndPersistDailyStock(stocks);
-    } catch (e) {
-      console.error('daily stock rebuild', e);
+      await refreshLiveStockFromSources();
+    } catch (err) {
+      console.error('liveStock refresh after load', err);
     }
     res.status(201).json(row);
   } catch (e) {

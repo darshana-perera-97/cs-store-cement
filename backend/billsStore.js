@@ -33,6 +33,31 @@ function emptyBrandMap() {
   return { tokyo: 0, samudra: 0, atlas: 0, nippon: 0 };
 }
 
+/** Per-brand bag counts already sold on bills tied to this stock ID (loads file is not mutated). */
+function sumBagsOnBillsForStockId(bills, stockId) {
+  const sid = String(stockId ?? '').trim();
+  const t = emptyBrandMap();
+  if (!sid) return t;
+  for (const row of bills) {
+    if (String(row.stockId ?? '').trim() !== sid) continue;
+    for (const k of BRAND_KEYS) {
+      t[k] += toNonNegNumber(row[`${k}Bags`]);
+    }
+  }
+  return t;
+}
+
+/** Total bags sold on all credit bills, per brand (inventory outflow). */
+function sumAllBillBagsByBrand(bills) {
+  const t = emptyBrandMap();
+  for (const row of bills) {
+    for (const k of BRAND_KEYS) {
+      t[k] += toNonNegNumber(row[`${k}Bags`]);
+    }
+  }
+  return t;
+}
+
 /** Bags sold per bill date → daily “out” totals per brand (credit sales). */
 function aggregateOutsByDateFromBills(bills) {
   const map = {};
@@ -52,5 +77,7 @@ module.exports = {
   writeBills,
   lineTotal,
   aggregateOutsByDateFromBills,
+  sumBagsOnBillsForStockId,
+  sumAllBillBagsByBrand,
   BILLS_FILE,
 };

@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { getApiBase } from '../apiBase';
-import { TableFiltersBar, filterControl, rowMatchesQuery } from './tableToolbar';
+import {
+  TableFiltersBar,
+  TablePaginationBar,
+  filterControl,
+  rowMatchesQuery,
+  scrollTableWrap,
+  stickyThead,
+  useTablePagination,
+} from './tableToolbar';
 
 const apiBase = getApiBase();
 
@@ -55,6 +63,12 @@ export default function CustomerTransactionsPage() {
       return rowMatchesQuery(search, [tx.date, tx.type, tx.details, String(tx.amount)]);
     });
   }, [transactions, search, kindFilter]);
+
+  const pagination = useTablePagination(filteredTransactions.length, [customerId, search, kindFilter]);
+  const pagedTransactions = useMemo(
+    () => filteredTransactions.slice(pagination.offset, pagination.offset + pagination.pageSize),
+    [filteredTransactions, pagination.offset, pagination.pageSize]
+  );
 
   return (
     <div className="space-y-5">
@@ -143,13 +157,14 @@ export default function CustomerTransactionsPage() {
             </select>
           </label>
         </TableFiltersBar>
-        <div className="overflow-x-auto rounded-[20px] bg-white shadow-lg shadow-slate-200/40 ring-1 ring-slate-100">
+        <div className="space-y-3">
+        <div className={scrollTableWrap}>
           {loading ? (
             <p className="px-4 py-12 text-center text-sm text-slate-500">Loading…</p>
           ) : (
-            <table className="w-full min-w-[520px] border-collapse text-left text-sm">
-              <thead>
-                <tr className="border-b border-slate-200 bg-slate-50/90 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <table className="w-full min-w-[520px] border-separate border-spacing-0 text-left text-sm">
+              <thead className={stickyThead}>
+                <tr className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                   <th className="whitespace-nowrap px-4 py-3">Date</th>
                   <th className="px-4 py-3">Type</th>
                   <th className="px-4 py-3">Details</th>
@@ -170,7 +185,7 @@ export default function CustomerTransactionsPage() {
                     </td>
                   </tr>
                 ) : (
-                  filteredTransactions.map((tx) => (
+                  pagedTransactions.map((tx) => (
                     <tr key={`${tx.kind}-${tx.id}`} className="hover:bg-slate-50/80">
                       <td className="whitespace-nowrap px-4 py-3 tabular-nums">{tx.date}</td>
                       <td className="px-4 py-3 font-medium text-slate-900">{tx.type}</td>
@@ -190,6 +205,17 @@ export default function CustomerTransactionsPage() {
               </tbody>
             </table>
           )}
+        </div>
+        {!loading && transactions.length > 0 ? (
+          <TablePaginationBar
+            page={pagination.page}
+            totalPages={pagination.totalPages}
+            pageSize={pagination.pageSize}
+            totalCount={filteredTransactions.length}
+            onPageChange={pagination.setPage}
+            onPageSizeChange={pagination.setPageSize}
+          />
+        ) : null}
         </div>
       </div>
     </div>

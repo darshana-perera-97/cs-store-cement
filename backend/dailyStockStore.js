@@ -1,9 +1,6 @@
-const fs = require('fs').promises;
-const path = require('path');
-const { readStocks, toNonNegNumber } = require('./stocksStore');
-const { readBills, aggregateOutsByDateFromBills } = require('./billsStore');
-
-const DAILY_FILE = path.join(__dirname, 'data', 'dailyStock.json');
+const { toNonNegNumber } = require('./stocksStore');
+const { aggregateOutsByDateFromBills } = require('./billsStore');
+const { aggregatePromotionOutsByDate } = require('./promotionsStore');
 
 const BRAND_KEYS = ['tokyo', 'samudra', 'atlas', 'nippon'];
 const BAG_FIELDS = {
@@ -62,10 +59,26 @@ function eachDateInclusive(fromYmd, toYmd) {
   return out;
 }
 
-/** Build daily ledger: start-of-day balance, bags in (loads that day), out (bills / credit sales that day), end-of-day. */
-function buildDailyStockPayload(loads, bills) {
+function mergeOutByDate(billOut, promoOut) {
+  const dates = new Set([...Object.keys(billOut), ...Object.keys(promoOut)]);
+  const merged = {};
+  for (const d of dates) {
+    merged[d] = emptyBrandMap();
+    for (const k of BRAND_KEYS) {
+      merged[d][k] = (billOut[d]?.[k] || 0) + (promoOut[d]?.[k] || 0);
+    }
+  }
+  return merged;
+}
+
+/**
+ * Build daily ledger: start-of-day, bags in (loads), out (credit bills + promotional free bags that day), end-of-day.
+ */
+function buildDailyStockPayload(loads, bills, promotions = []) {
   const inByDate = aggregateLoadsByDate(loads);
-  const outByDate = aggregateOutsByDateFromBills(Array.isArray(bills) ? bills : []);
+  const billOut = aggregateOutsByDateFromBills(Array.isArray(bills) ? bills : []);
+  const promoOut = aggregatePromotionOutsByDate(Array.isArray(promotions) ? promotions : []);
+  const outByDate = mergeOutByDate(billOut, promoOut);
   const allKeys = new Set([...Object.keys(inByDate), ...Object.keys(outByDate)]);
   if (allKeys.size === 0) {
     return { generatedAt: new Date().toISOString(), days: [] };
@@ -98,22 +111,6 @@ function buildDailyStockPayload(loads, bills) {
   return { generatedAt: new Date().toISOString(), days };
 }
 
-async function writeDailyStock(payload) {
-  await fs.mkdir(path.dirname(DAILY_FILE), { recursive: true });
-  await fs.writeFile(DAILY_FILE, JSON.stringify(payload, null, 2), 'utf8');
-}
-
-async function rebuildAndPersistDailyStock(loadsOptional, billsOptional) {
-  const loads = loadsOptional != null ? loadsOptional : await readStocks();
-  const bills = billsOptional != null ? billsOptional : await readBills();
-  const payload = buildDailyStockPayload(loads, bills);
-  await writeDailyStock(payload);
-  return payload;
-}
-
 module.exports = {
-  rebuildAndPersistDailyStock,
   buildDailyStockPayload,
-  writeDailyStock,
-  DAILY_FILE,
 };

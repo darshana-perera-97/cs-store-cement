@@ -2,7 +2,16 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { getApiBase } from '../apiBase';
 import { getUsername } from '../auth';
-import { TableFiltersBar, filterControl, inDateRange, rowMatchesQuery } from './tableToolbar';
+import {
+  TableFiltersBar,
+  TablePaginationBar,
+  filterControl,
+  inDateRange,
+  rowMatchesQuery,
+  scrollTableWrap,
+  stickyThead,
+  useTablePagination,
+} from './tableToolbar';
 
 const apiBase = getApiBase();
 
@@ -98,6 +107,17 @@ export default function PaymentsPage() {
       return true;
     });
   }, [rows, search, dateFrom, dateTo, customerFilter]);
+
+  const pagination = useTablePagination(filteredRows.length, [
+    search,
+    dateFrom,
+    dateTo,
+    customerFilter,
+  ]);
+  const pagedRows = useMemo(
+    () => filteredRows.slice(pagination.offset, pagination.offset + pagination.pageSize),
+    [filteredRows, pagination.offset, pagination.pageSize]
+  );
 
   const openModal = () => {
     setForm(emptyForm());
@@ -244,10 +264,11 @@ export default function PaymentsPage() {
         </label>
       </TableFiltersBar>
 
-      <div className="overflow-x-auto rounded-[20px] bg-white shadow-lg shadow-slate-200/40 ring-1 ring-slate-100">
-        <table className="w-full min-w-[720px] border-collapse text-left text-sm">
-          <thead>
-            <tr className="border-b border-slate-200 bg-slate-50/90 text-xs font-semibold uppercase tracking-wide text-slate-500">
+      <div className="space-y-3">
+      <div className={scrollTableWrap}>
+        <table className="w-full min-w-[720px] border-separate border-spacing-0 text-left text-sm">
+          <thead className={stickyThead}>
+            <tr className="text-xs font-semibold uppercase tracking-wide text-slate-500">
               <th className="whitespace-nowrap px-4 py-3">Date</th>
               <th className="whitespace-nowrap px-4 py-3 font-mono">Bill #</th>
               <th className="px-4 py-3">Customer</th>
@@ -277,7 +298,7 @@ export default function PaymentsPage() {
                 </td>
               </tr>
             ) : (
-              filteredRows.map((r) => (
+              pagedRows.map((r) => (
                 <tr key={r.id} className="hover:bg-slate-50/80">
                   <td className="whitespace-nowrap px-4 py-3 tabular-nums">{r.date}</td>
                   <td className="whitespace-nowrap px-4 py-3 font-mono text-sm font-semibold tabular-nums text-slate-800">
@@ -306,6 +327,17 @@ export default function PaymentsPage() {
             )}
           </tbody>
         </table>
+      </div>
+      {!loading && rows.length > 0 ? (
+        <TablePaginationBar
+          page={pagination.page}
+          totalPages={pagination.totalPages}
+          pageSize={pagination.pageSize}
+          totalCount={filteredRows.length}
+          onPageChange={pagination.setPage}
+          onPageSizeChange={pagination.setPageSize}
+        />
+      ) : null}
       </div>
 
       {modalOpen ? (

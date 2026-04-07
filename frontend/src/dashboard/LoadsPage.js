@@ -2,7 +2,16 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { getApiBase } from '../apiBase';
 import { getUsername } from '../auth';
 import { BRANDS } from './brandTheme';
-import { TableFiltersBar, filterControl, inDateRange, rowMatchesQuery } from './tableToolbar';
+import {
+  TableFiltersBar,
+  TablePaginationBar,
+  filterControl,
+  inDateRange,
+  rowMatchesQuery,
+  scrollTableWrap,
+  stickyTheadTransparent,
+  useTablePagination,
+} from './tableToolbar';
 
 const apiBase = getApiBase();
 
@@ -124,6 +133,12 @@ export default function LoadsPage() {
     return t;
   }, [filteredRows]);
 
+  const pagination = useTablePagination(filteredRows.length, [search, dateFrom, dateTo]);
+  const pagedRows = useMemo(
+    () => filteredRows.slice(pagination.offset, pagination.offset + pagination.pageSize),
+    [filteredRows, pagination.offset, pagination.pageSize]
+  );
+
   const openModal = () => {
     setForm({
       ...emptyForm(),
@@ -242,9 +257,10 @@ export default function LoadsPage() {
         </label>
       </TableFiltersBar>
 
-      <div className="overflow-x-auto rounded-[20px] bg-white shadow-lg shadow-slate-200/40 ring-1 ring-slate-100">
-        <table className="w-full min-w-[1100px] border-collapse text-left text-sm">
-          <thead>
+      <div className="space-y-3">
+      <div className={scrollTableWrap}>
+        <table className="w-full min-w-[1100px] border-separate border-spacing-0 text-left text-sm">
+          <thead className={stickyTheadTransparent}>
             <tr className="border-b border-slate-100 bg-slate-50/90 text-xs font-semibold uppercase tracking-wide text-slate-500">
               <th rowSpan={2} className="whitespace-nowrap px-3 py-3 align-bottom">
                 Date
@@ -300,7 +316,7 @@ export default function LoadsPage() {
                 </td>
               </tr>
             ) : (
-              filteredRows.map((r) => {
+              pagedRows.map((r) => {
                 const rowLine = 'border-b border-slate-100/90';
                 return (
                   <tr key={r.id}>
@@ -366,6 +382,17 @@ export default function LoadsPage() {
             </tfoot>
           ) : null}
         </table>
+      </div>
+      {!loading && rows.length > 0 ? (
+        <TablePaginationBar
+          page={pagination.page}
+          totalPages={pagination.totalPages}
+          pageSize={pagination.pageSize}
+          totalCount={filteredRows.length}
+          onPageChange={pagination.setPage}
+          onPageSizeChange={pagination.setPageSize}
+        />
+      ) : null}
       </div>
 
       {modalOpen ? (

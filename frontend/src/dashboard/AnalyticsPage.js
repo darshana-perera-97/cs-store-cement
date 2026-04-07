@@ -16,7 +16,16 @@ import {
 } from 'recharts';
 import { getApiBase } from '../apiBase';
 import { BRANDS } from './brandTheme';
-import { TableFiltersBar, filterControl, rowMatchesQuery } from './tableToolbar';
+import {
+  TableFiltersBar,
+  TablePaginationBar,
+  filterControl,
+  pageSizeOptionsWith,
+  rowMatchesQuery,
+  scrollTableWrap,
+  stickyThead,
+  useTablePagination,
+} from './tableToolbar';
 import { downloadOverdueBillsPdf } from './overdueBillsPdf';
 
 /** Bar fills aligned with `BRANDS` — same hues as light theme, higher chroma for readability */
@@ -30,7 +39,8 @@ const BRAND_BAR_COLORS = {
 /** [0] pending · [1] payments — stronger tints for Pending vs collected donut */
 const DONUT_COLORS = ['#a78bfa', '#34d399'];
 
-const OVERDUE_PREVIEW_COUNT = 6;
+/** Offer “View all” when there are more overdue bills than this count. */
+const OVERDUE_VIEW_ALL_THRESHOLD = 10;
 
 const overdueSubtitle =
   'Payment is due within 14 days of each bill date (local calendar); these credit bills still have a balance after that due date.';
@@ -84,29 +94,36 @@ function Card({ title, subtitle, children, className = '', headerExtra = null })
   );
 }
 
-function OverdueBillsTable({ rows, totalLoadedCount }) {
+function OverdueBillsTable({ rows, totalLoadedCount, defaultPageSize = 10, resetKey = '' }) {
+  const pagination = useTablePagination(rows.length, [resetKey, rows.length], defaultPageSize);
+  const pagedRows = useMemo(
+    () => rows.slice(pagination.offset, pagination.offset + pagination.pageSize),
+    [rows, pagination.offset, pagination.pageSize],
+  );
+
   return (
-    <div className="overflow-x-auto -mx-1">
-      <table className="w-full min-w-[720px] text-left text-sm">
-        <thead>
-          <tr className="border-b border-slate-100 text-xs font-semibold uppercase tracking-wide text-slate-400">
-            <th className="pb-3 pl-1 pr-3">Customer</th>
-            <th className="pb-3 pr-3">Bill details</th>
-            <th className="pb-3 pr-3">Bill date</th>
-            <th className="pb-3 pr-3">Due date</th>
-            <th className="pb-3 pr-3 text-right">Days overdue</th>
-            <th className="pb-3 pr-1 text-right">Outstanding</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-50">
-          {rows.length === 0 ? (
-            <tr>
-              <td colSpan={6} className="py-8 text-center text-sm text-slate-500">
-                {totalLoadedCount === 0 ? 'No overdue bills.' : 'No rows match your search.'}
-              </td>
+    <div className="space-y-3">
+      <div className={`-mx-1 ${scrollTableWrap}`}>
+        <table className="w-full min-w-[720px] border-separate border-spacing-0 text-left text-sm">
+          <thead className={stickyThead}>
+            <tr className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+              <th className="pb-3 pl-1 pr-3">Customer</th>
+              <th className="pb-3 pr-3">Bill details</th>
+              <th className="pb-3 pr-3">Bill date</th>
+              <th className="pb-3 pr-3">Due date</th>
+              <th className="pb-3 pr-3 text-right">Days overdue</th>
+              <th className="pb-3 pr-1 text-right">Outstanding</th>
             </tr>
-          ) : (
-            rows.map((row) => (
+          </thead>
+          <tbody className="divide-y divide-slate-50">
+            {rows.length === 0 ? (
+              <tr>
+                <td colSpan={6} className="py-8 text-center text-sm text-slate-500">
+                  {totalLoadedCount === 0 ? 'No overdue bills.' : 'No rows match your search.'}
+                </td>
+              </tr>
+            ) : (
+              pagedRows.map((row) => (
               <tr key={row.id} className="text-slate-700">
                 <td className="max-w-[140px] py-3.5 pl-1 pr-3 font-semibold text-slate-900">
                   <span className="line-clamp-2">{row.customerName}</span>
@@ -126,9 +143,21 @@ function OverdueBillsTable({ rows, totalLoadedCount }) {
                 </td>
               </tr>
             ))
-          )}
-        </tbody>
-      </table>
+            )}
+          </tbody>
+        </table>
+      </div>
+      {totalLoadedCount > 0 ? (
+        <TablePaginationBar
+          page={pagination.page}
+          totalPages={pagination.totalPages}
+          pageSize={pagination.pageSize}
+          totalCount={rows.length}
+          onPageChange={pagination.setPage}
+          onPageSizeChange={pagination.setPageSize}
+          pageSizeOptions={pageSizeOptionsWith(defaultPageSize)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -246,12 +275,7 @@ export default function AnalyticsPage() {
     );
   }, [overdueBills, overdueSearch]);
 
-  const previewOverdueRows = useMemo(
-    () => filteredOverdueBills.slice(0, OVERDUE_PREVIEW_COUNT),
-    [filteredOverdueBills],
-  );
-
-  const showOverdueViewAll = overdueBills.length > OVERDUE_PREVIEW_COUNT;
+  const showOverdueViewAll = overdueBills.length > OVERDUE_VIEW_ALL_THRESHOLD;
 
   const overdueSearchInput = (
     <label className="block min-w-[220px] flex-1 text-sm font-medium text-slate-600">
@@ -330,7 +354,7 @@ export default function AnalyticsPage() {
             <div className="mt-4 py-10 text-center text-sm text-slate-500">Loading…</div>
           ) : (
             <div className="mt-4">
-              <OverdueBillsTable rows={filteredOverdueBills} totalLoadedCount={overdueBills.length} />
+              <OverdueBillsTable rows={filteredOverdueBills} totalLoadedCount={overdueBills.length} resetKey={overdueSearch} />
             </div>
           )}
         </Card>
@@ -595,13 +619,9 @@ export default function AnalyticsPage() {
               ? null
               : overdueBills.length === 0
                 ? 'No overdue bills — all are within 14 days or fully allocated by payments.'
-                : filteredOverdueBills.length <= OVERDUE_PREVIEW_COUNT
-                  ? `Showing ${filteredOverdueBills.length} overdue bill${
-                      filteredOverdueBills.length === 1 ? '' : 's'
-                    }${overdueSearch.trim() ? ' (search)' : ''}.`
-                  : `Showing ${previewOverdueRows.length} of ${filteredOverdueBills.length} matching search (${
-                      overdueBills.length
-                    } total overdue). Open View all for the full table.`
+                : `Showing ${filteredOverdueBills.length} of ${overdueBills.length} overdue bill${
+                    overdueBills.length === 1 ? '' : 's'
+                  }${overdueSearch.trim() ? ' (search)' : ''}. Use the table pagination below.`
           }
         >
           {overdueSearchInput}
@@ -610,7 +630,7 @@ export default function AnalyticsPage() {
           <div className="mt-4 py-10 text-center text-sm text-slate-500">Loading…</div>
         ) : (
           <div className="mt-4">
-            <OverdueBillsTable rows={previewOverdueRows} totalLoadedCount={overdueBills.length} />
+            <OverdueBillsTable rows={filteredOverdueBills} totalLoadedCount={overdueBills.length} resetKey={overdueSearch} />
           </div>
         )}
       </Card>

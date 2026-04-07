@@ -1,22 +1,36 @@
 const fs = require('fs').promises;
 const path = require('path');
 
-const STOCKS_FILE = path.join(__dirname, 'data', 'stocks.json');
+/** Loads (dispatch records) for the Loads page and stock ledger. */
+const LOADS_FILE = path.join(__dirname, 'data', 'loads.json');
+/** Earlier filename; still read once to migrate if `loads.json` is absent. */
+const LEGACY_STOCKS_FILE = path.join(__dirname, 'data', 'stocks.json');
 
 async function readStocks() {
   try {
-    const raw = await fs.readFile(STOCKS_FILE, 'utf8');
+    const raw = await fs.readFile(LOADS_FILE, 'utf8');
     const data = JSON.parse(raw);
     return Array.isArray(data) ? data : [];
   } catch (e) {
-    if (e.code === 'ENOENT') return [];
-    throw e;
+    if (e.code !== 'ENOENT') throw e;
+  }
+
+  try {
+    const raw = await fs.readFile(LEGACY_STOCKS_FILE, 'utf8');
+    const data = JSON.parse(raw);
+    const arr = Array.isArray(data) ? data : [];
+    await fs.mkdir(path.dirname(LOADS_FILE), { recursive: true });
+    await fs.writeFile(LOADS_FILE, JSON.stringify(arr, null, 2), 'utf8');
+    return arr;
+  } catch (e2) {
+    if (e2.code === 'ENOENT') return [];
+    throw e2;
   }
 }
 
 async function writeStocks(records) {
-  await fs.mkdir(path.dirname(STOCKS_FILE), { recursive: true });
-  await fs.writeFile(STOCKS_FILE, JSON.stringify(records, null, 2), 'utf8');
+  await fs.mkdir(path.dirname(LOADS_FILE), { recursive: true });
+  await fs.writeFile(LOADS_FILE, JSON.stringify(records, null, 2), 'utf8');
 }
 
 function toNonNegNumber(v) {
@@ -27,37 +41,21 @@ function toNonNegNumber(v) {
 
 const BAG_BRANDS = ['tokyo', 'samudra', 'atlas', 'nippon'];
 
-/** Subtract sold bags from the load row whose stockId matches (credit sale). Empty stockId skips deduction. */
-function applyBillDeductionToLoads(stocks, stockId, billBags) {
-  const sid = String(stockId ?? '').trim();
-  if (!sid) return { ok: true };
-
-  const load = stocks.find((s) => String(s.stockId || '').trim() === sid);
-  if (!load) {
-    return {
-      ok: false,
-      error: `No load with Stock ID "${sid}". Add it on Loads or correct the Stock ID on the bill.`,
-    };
-  }
-
-  for (const k of BAG_BRANDS) {
-    const field = `${k}Bags`;
-    const have = toNonNegNumber(load[field]);
-    const need = toNonNegNumber(billBags[field]);
-    if (need > have) {
-      return {
-        ok: false,
-        error: `Not enough ${k} bags on load ${sid}: have ${have}, this sale needs ${need}.`,
-      };
+/** Sum arrival quantities on all load rows (original bags; not reduced when bills are saved). */
+function sumLoadBagsByBrand(loads) {
+  const t = { tokyo: 0, samudra: 0, atlas: 0, nippon: 0 };
+  for (const row of loads) {
+    for (const k of BAG_BRANDS) {
+      t[k] += toNonNegNumber(row[`${k}Bags`]);
     }
   }
-
-  for (const k of BAG_BRANDS) {
-    const field = `${k}Bags`;
-    load[field] = toNonNegNumber(load[field]) - toNonNegNumber(billBags[field]);
-  }
-
-  return { ok: true };
+  return t;
 }
 
-module.exports = { readStocks, writeStocks, toNonNegNumber, applyBillDeductionToLoads };
+module.exports = {
+  readStocks,
+  writeStocks,
+  toNonNegNumber,
+  sumLoadBagsByBrand,
+  LOADS_FILE,
+};

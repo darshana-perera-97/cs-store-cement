@@ -2,7 +2,15 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { getApiBase } from '../apiBase';
 import { authFetch, getUsername, isAdmin } from '../auth';
-import { TableFiltersBar, filterControl, rowMatchesQuery } from './tableToolbar';
+import {
+  TableFiltersBar,
+  TablePaginationBar,
+  filterControl,
+  rowMatchesQuery,
+  scrollTableWrap,
+  stickyThead,
+  useTablePagination,
+} from './tableToolbar';
 
 const emptyForm = () => ({ username: '', password: '' });
 
@@ -49,6 +57,12 @@ export default function UsersPage() {
       rowMatchesQuery(search, [r.username, r.id, r.createdBy, r.createdAt]),
     );
   }, [rows, search]);
+
+  const pagination = useTablePagination(filteredRows.length, [search]);
+  const pagedRows = useMemo(
+    () => filteredRows.slice(pagination.offset, pagination.offset + pagination.pageSize),
+    [filteredRows, pagination.offset, pagination.pageSize]
+  );
 
   const openModal = () => {
     setForm(emptyForm());
@@ -166,10 +180,11 @@ export default function UsersPage() {
       {loading ? (
         <p className="text-sm text-slate-500">Loading…</p>
       ) : (
-        <div className="overflow-x-auto rounded-[20px] bg-white shadow-lg shadow-slate-200/40 ring-1 ring-slate-100">
-          <table className="w-full min-w-[640px] text-left text-sm">
-            <thead>
-              <tr className="border-b border-slate-100 text-xs font-semibold uppercase tracking-wide text-slate-400">
+        <div className="space-y-3">
+        <div className={scrollTableWrap}>
+          <table className="w-full min-w-[640px] border-separate border-spacing-0 text-left text-sm">
+            <thead className={stickyThead}>
+              <tr className="text-xs font-semibold uppercase tracking-wide text-slate-400">
                 <th className="py-3 pl-4 pr-3">Username</th>
                 <th className="py-3 pr-3">Added</th>
                 <th className="py-3 pr-3">Created by</th>
@@ -184,7 +199,7 @@ export default function UsersPage() {
                   </td>
                 </tr>
               ) : (
-                filteredRows.map((r) => {
+                pagedRows.map((r) => {
                   const isSelf = r.username === selfName;
                   return (
                     <tr key={r.id} className="text-slate-700">
@@ -214,6 +229,17 @@ export default function UsersPage() {
               )}
             </tbody>
           </table>
+        </div>
+        {rows.length > 0 ? (
+          <TablePaginationBar
+            page={pagination.page}
+            totalPages={pagination.totalPages}
+            pageSize={pagination.pageSize}
+            totalCount={filteredRows.length}
+            onPageChange={pagination.setPage}
+            onPageSizeChange={pagination.setPageSize}
+          />
+        ) : null}
         </div>
       )}
 

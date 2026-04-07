@@ -21,6 +21,7 @@ const SECTION_RULES = [
   { test: (p) => p === '/dashboard/loads', title: `Loads — ${BRAND}` },
   { test: (p) => p === '/dashboard/bills', title: `Bills — ${BRAND}` },
   { test: (p) => p === '/dashboard/payments', title: `Payments — ${BRAND}` },
+  { test: (p) => p === '/dashboard/promotions', title: `Promotions — ${BRAND}` },
   { test: (p) => p === '/dashboard/users', title: `Users — ${BRAND}` },
 ];
 

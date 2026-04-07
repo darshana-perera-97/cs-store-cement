@@ -1,12 +1,21 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { getApiBase } from '../apiBase';
 import { BRANDS } from './brandTheme';
-import { TableFiltersBar, filterControl, rowMatchesQuery } from './tableToolbar';
+import {
+  TableFiltersBar,
+  TablePaginationBar,
+  filterControl,
+  rowMatchesQuery,
+  scrollTableWrap,
+  stickyTheadTransparent,
+  useTablePagination,
+} from './tableToolbar';
 
 const apiBase = getApiBase();
 
 export default function StockPage() {
   const [rows, setRows] = useState([]);
+  const [summaryBrands, setSummaryBrands] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [dailyDays, setDailyDays] = useState([]);
@@ -19,13 +28,23 @@ export default function StockPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${apiBase}/api/stocks`);
-      if (!res.ok) throw new Error('Failed to load stock data');
-      const data = await res.json();
+      const [stocksRes, summaryRes] = await Promise.all([
+        fetch(`${apiBase}/api/stocks`),
+        fetch(`${apiBase}/api/stocks/summary`),
+      ]);
+      if (!stocksRes.ok) throw new Error('Failed to load stock data');
+      const data = await stocksRes.json();
       setRows(Array.isArray(data) ? data : []);
+      if (summaryRes.ok) {
+        const sum = await summaryRes.json();
+        setSummaryBrands(Array.isArray(sum.brands) ? sum.brands : null);
+      } else {
+        setSummaryBrands(null);
+      }
     } catch (e) {
       setError(e.message || 'Could not load data');
       setRows([]);
+      setSummaryBrands(null);
     } finally {
       setLoading(false);
     }
@@ -55,6 +74,12 @@ export default function StockPage() {
 
   const totals = useMemo(() => {
     const t = { tokyo: 0, samudra: 0, atlas: 0, nippon: 0 };
+    if (summaryBrands?.length) {
+      for (const b of summaryBrands) {
+        if (b.key in t) t[b.key] = Number(b.bags) || 0;
+      }
+      return t;
+    }
     for (const r of rows) {
       t.tokyo += Number(r.tokyoBags) || 0;
       t.samudra += Number(r.samudraBags) || 0;
@@ -62,7 +87,7 @@ export default function StockPage() {
       t.nippon += Number(r.nipponBags) || 0;
     }
     return t;
-  }, [rows]);
+  }, [rows, summaryBrands]);
 
   const dailyRowsDesc = useMemo(() => [...dailyDays].reverse(), [dailyDays]);
 
@@ -81,12 +106,21 @@ export default function StockPage() {
     });
   }, [dailyRowsDesc, ledgerSearch, ledgerFilter]);
 
+  const pagination = useTablePagination(filteredDailyRows.length, [ledgerSearch, ledgerFilter]);
+  const pagedDailyRows = useMemo(
+    () => filteredDailyRows.slice(pagination.offset, pagination.offset + pagination.pageSize),
+    [filteredDailyRows, pagination.offset, pagination.pageSize]
+  );
+
   return (
     <div className="space-y-6">
       <div>
         <p className="text-sm text-slate-500">
-          Bag totals from all recorded loads. Add or adjust figures on the{' '}
-          <span className="font-medium text-slate-700">Loads</span> page.
+          Bag counts above come from{' '}
+          <code className="rounded bg-slate-100 px-1 py-0.5 text-xs text-slate-700">backend/data/liveStock.json</code>,
+          updated when you add a load, record a credit bill, or add a promotion (free bags). Original arrival quantities
+          stay on each load in{' '}
+          <span className="font-medium text-slate-700">Loads</span>.
         </p>
       </div>
 
@@ -130,11 +164,11 @@ export default function StockPage() {
       <div className="space-y-2">
         <h2 className="text-base font-bold text-slate-900">Daily bag ledger</h2>
         <p className="text-sm text-slate-500">
-          Start of day, bags in from Loads that day, bags out from credit sales on the{' '}
-          <span className="font-medium text-slate-700">Bills</span> page (by bill date), and end-of-day balance per
-          brand. Saved as{' '}
-          <code className="rounded bg-slate-100 px-1 py-0.5 text-xs text-slate-700">backend/data/dailyStock.json</code>
-          .
+          Start of day, bags in from Loads that day, bags out from credit sales (
+          <span className="font-medium text-slate-700">Bills</span>, by bill date) plus free bags from{' '}
+          <span className="font-medium text-slate-700">Promotions</span> (by issue date). Read from{' '}
+          <code className="rounded bg-slate-100 px-1 py-0.5 text-xs text-slate-700">liveStock.json</code>, refreshed when
+          loads, bills, or promotions change.
         </p>
       </div>
 
@@ -175,9 +209,10 @@ export default function StockPage() {
         </label>
       </TableFiltersBar>
 
-      <div className="overflow-x-auto rounded-[20px] bg-white shadow-lg shadow-slate-200/40 ring-1 ring-slate-100">
-        <table className="w-full min-w-[900px] border-collapse text-left text-sm">
-          <thead>
+      <div className="space-y-3">
+      <div className={scrollTableWrap}>
+        <table className="w-full min-w-[900px] border-separate border-spacing-0 text-left text-sm">
+          <thead className={stickyTheadTransparent}>
             <tr className="border-b border-slate-100 bg-slate-50/90 text-xs font-semibold uppercase tracking-wide text-slate-500">
               <th rowSpan={2} className="whitespace-nowrap px-3 py-3 align-bottom">
                 Date
@@ -223,7 +258,7 @@ export default function StockPage() {
                 </td>
               </tr>
             ) : (
-              filteredDailyRows.map((day) => (
+              pagedDailyRows.map((day) => (
                 <tr key={day.date}>
                   <td className="whitespace-nowrap border-b border-slate-100 bg-slate-50/70 px-3 py-3 font-medium tabular-nums text-slate-800">
                     {day.date}
@@ -247,6 +282,17 @@ export default function StockPage() {
             )}
           </tbody>
         </table>
+      </div>
+      {!dailyLoading && dailyRowsDesc.length > 0 ? (
+        <TablePaginationBar
+          page={pagination.page}
+          totalPages={pagination.totalPages}
+          pageSize={pagination.pageSize}
+          totalCount={filteredDailyRows.length}
+          onPageChange={pagination.setPage}
+          onPageSizeChange={pagination.setPageSize}
+        />
+      ) : null}
       </div>
     </div>
   );

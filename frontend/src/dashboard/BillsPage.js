@@ -2,7 +2,17 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { getApiBase } from '../apiBase';
 import { getUsername } from '../auth';
 import { BRANDS } from './brandTheme';
-import { TableFiltersBar, filterControl, inDateRange, rowMatchesQuery } from './tableToolbar';
+import {
+  TableFiltersBar,
+  TablePaginationBar,
+  filterControl,
+  inDateRange,
+  rowMatchesQuery,
+  scrollTableWrap,
+  stickyThead,
+  stickyTheadTransparent,
+  useTablePagination,
+} from './tableToolbar';
 
 const apiBase = getApiBase();
 
@@ -112,6 +122,12 @@ export default function BillsPage() {
       ]);
     });
   }, [rows, search, stockFilter, dateFrom, dateTo]);
+
+  const pagination = useTablePagination(filteredRows.length, [search, stockFilter, dateFrom, dateTo]);
+  const pagedRows = useMemo(
+    () => filteredRows.slice(pagination.offset, pagination.offset + pagination.pageSize),
+    [filteredRows, pagination.offset, pagination.pageSize]
+  );
 
   const openAdd = async () => {
     setSaveError(null);
@@ -263,13 +279,14 @@ export default function BillsPage() {
         </label>
       </TableFiltersBar>
 
-      <div className="overflow-x-auto rounded-[20px] bg-white shadow-lg shadow-slate-200/40 ring-1 ring-slate-100">
-        <table className="w-full min-w-[960px] border-collapse text-left text-sm">
-          <thead>
-            <tr className="border-b border-slate-200 bg-slate-50/90 text-xs font-semibold uppercase tracking-wide text-slate-500">
-              <th className="whitespace-nowrap px-3 py-3 align-bottom">Date</th>
-              <th className="whitespace-nowrap px-3 py-3 align-bottom">Stock</th>
-              <th className="whitespace-nowrap px-3 py-3 align-bottom">Customer</th>
+      <div className="space-y-3">
+      <div className={scrollTableWrap}>
+        <table className="w-full min-w-[960px] border-separate border-spacing-0 text-left text-sm">
+          <thead className={stickyTheadTransparent}>
+            <tr className="border-b border-slate-200 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <th className="whitespace-nowrap bg-slate-50/95 px-3 py-3 align-bottom">Date</th>
+              <th className="whitespace-nowrap bg-slate-50/95 px-3 py-3 align-bottom">Stock</th>
+              <th className="whitespace-nowrap bg-slate-50/95 px-3 py-3 align-bottom">Customer</th>
               {BRANDS.map((b) => (
                 <th key={b.key} className={`whitespace-nowrap px-2 py-2 text-center ${b.ledger.head}`}>
                   {b.label}
@@ -302,7 +319,7 @@ export default function BillsPage() {
                 </td>
               </tr>
             ) : (
-              filteredRows.map((r) => {
+              pagedRows.map((r) => {
                 const rowLine = 'border-b border-slate-100/90';
                 return (
                   <tr key={r.id}>
@@ -345,6 +362,17 @@ export default function BillsPage() {
             )}
           </tbody>
         </table>
+      </div>
+      {!loading && rows.length > 0 ? (
+        <TablePaginationBar
+          page={pagination.page}
+          totalPages={pagination.totalPages}
+          pageSize={pagination.pageSize}
+          totalCount={filteredRows.length}
+          onPageChange={pagination.setPage}
+          onPageSizeChange={pagination.setPageSize}
+        />
+      ) : null}
       </div>
 
       {addOpen ? (
@@ -488,10 +516,10 @@ export default function BillsPage() {
               ) : null}{' '}
               · {detailBill.customerName}
             </p>
-            <div className="mt-4 overflow-hidden rounded-xl ring-1 ring-slate-100">
-              <table className="w-full border-collapse text-sm">
-                <thead>
-                  <tr className="border-b border-slate-100 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <div className="mt-4 max-h-64 overflow-auto rounded-xl ring-1 ring-slate-100">
+              <table className="w-full border-separate border-spacing-0 text-sm">
+                <thead className={stickyThead}>
+                  <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                     <th className="px-3 py-2">Brand</th>
                     <th className="px-2 py-2 text-center">Bags</th>
                     <th className="px-2 py-2 text-right">Price / bag</th>

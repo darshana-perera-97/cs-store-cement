@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { clearAuth, getToken, isAdmin, isAuthed } from '../auth';
+import { clearAuth, getToken, getUsername, isAdmin, isAuthed } from '../auth';
 import { DASHBOARD_NAV } from './navConfig';
 import { NavIcon } from './NavIcon';
 
@@ -152,6 +152,9 @@ export default function DashboardLayout() {
   }, [navigate]);
 
   const navItems = DASHBOARD_NAV.filter((item) => item.to !== '/dashboard/users' || isAdmin());
+  const signedInName = getUsername().trim() || 'Signed in';
+  const userInitial = signedInName.charAt(0).toUpperCase() || '?';
+  const roleLabel = isAdmin() ? 'Administrator' : 'Staff';
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-[#F4F7FE] text-slate-900">
@@ -175,10 +178,10 @@ export default function DashboardLayout() {
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-600 to-violet-600 text-xs font-bold text-white shadow-md shadow-indigo-500/25">
               CS
             </div>
-            <div>
+            <div className="min-w-0">
               <p className="text-sm font-bold tracking-tight text-slate-900">CS STORE</p>
-              <p className="text-[10px] font-medium uppercase tracking-widest text-slate-400">
-                Admin
+              <p className="mt-0.5 truncate text-xs font-medium text-slate-500" title={signedInName}>
+                {signedInName}
               </p>
             </div>
           </div>
@@ -248,12 +251,17 @@ export default function DashboardLayout() {
             </p>
           </div>
           <div className="flex items-center gap-3 rounded-2xl bg-slate-50/90 px-3 py-2.5 ring-1 ring-slate-100">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-slate-200 to-slate-300 text-sm font-semibold text-slate-700">
-              A
+            <div
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-200 to-violet-200 text-sm font-semibold text-indigo-900"
+              aria-hidden
+            >
+              {userInitial}
             </div>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold text-slate-900">Admin</p>
-              <p className="truncate text-xs text-slate-500">Administrator</p>
+              <p className="truncate text-sm font-semibold text-slate-900" title={signedInName}>
+                {signedInName}
+              </p>
+              <p className="truncate text-xs text-slate-500">{roleLabel}</p>
             </div>
           </div>
           <button
@@ -361,7 +369,7 @@ function RightPanel() {
     async function loadPanel() {
       try {
         const [stockRes, cashRes] = await Promise.all([
-          fetch(`${apiBase}/api/stocks`),
+          fetch(`${apiBase}/api/stocks/summary`),
           fetch(`${apiBase}/api/cash-summary`),
         ]);
 
@@ -377,26 +385,11 @@ function RightPanel() {
         if (!stockRes.ok) {
           throw new Error(`HTTP ${stockRes.status}`);
         }
-        const stocks = await stockRes.json();
-        const list = Array.isArray(stocks) ? stocks : [];
-
-        const totals = { tokyo: 0, samudra: 0, atlas: 0, nippon: 0 };
-        for (const row of list) {
-          totals.tokyo += Number(row.tokyoBags) || 0;
-          totals.samudra += Number(row.samudraBags) || 0;
-          totals.atlas += Number(row.atlasBags) || 0;
-          totals.nippon += Number(row.nipponBags) || 0;
-        }
-
-        const brands = [
-          { key: 'tokyo', label: 'Tokyo', bags: totals.tokyo },
-          { key: 'samudra', label: 'Samudra', bags: totals.samudra },
-          { key: 'atlas', label: 'Atlas', bags: totals.atlas },
-          { key: 'nippon', label: 'Nippon', bags: totals.nippon },
-        ];
+        const sum = await stockRes.json();
+        const brands = Array.isArray(sum.brands) ? sum.brands : [];
 
         if (!cancelled) {
-          setStockSummary({ brands, liveAt: new Date().toISOString() });
+          setStockSummary({ brands, liveAt: sum.liveAt || new Date().toISOString() });
           setStockError(null);
         }
 

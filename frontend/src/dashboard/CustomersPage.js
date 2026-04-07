@@ -2,7 +2,15 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getApiBase } from '../apiBase';
 import { getUsername } from '../auth';
-import { TableFiltersBar, filterControl, rowMatchesQuery } from './tableToolbar';
+import {
+  TableFiltersBar,
+  TablePaginationBar,
+  filterControl,
+  rowMatchesQuery,
+  scrollTableWrap,
+  stickyThead,
+  useTablePagination,
+} from './tableToolbar';
 
 const apiBase = getApiBase();
 
@@ -77,6 +85,12 @@ export default function CustomersPage() {
       ]);
     });
   }, [rows, search, dueFilter, today]);
+
+  const pagination = useTablePagination(filteredRows.length, [search, dueFilter]);
+  const pagedRows = useMemo(
+    () => filteredRows.slice(pagination.offset, pagination.offset + pagination.pageSize),
+    [filteredRows, pagination.offset, pagination.pageSize]
+  );
 
   const openModal = () => {
     setForm(emptyForm());
@@ -183,10 +197,11 @@ export default function CustomersPage() {
         </label>
       </TableFiltersBar>
 
-      <div className="overflow-x-auto rounded-[20px] bg-white shadow-lg shadow-slate-200/40 ring-1 ring-slate-100">
-        <table className="w-full min-w-[640px] border-collapse text-left text-sm">
-          <thead>
-            <tr className="border-b border-slate-200 bg-slate-50/90 text-xs font-semibold uppercase tracking-wide text-slate-500">
+      <div className="space-y-3">
+      <div className={scrollTableWrap}>
+        <table className="w-full min-w-[640px] border-separate border-spacing-0 text-left text-sm">
+          <thead className={stickyThead}>
+            <tr className="text-xs font-semibold uppercase tracking-wide text-slate-500">
               <th className="px-4 py-3">Customer name</th>
               <th className="px-4 py-3 text-right">Remaining amount</th>
               <th className="whitespace-nowrap px-4 py-3">Due date</th>
@@ -213,7 +228,7 @@ export default function CustomersPage() {
                 </td>
               </tr>
             ) : (
-              filteredRows.map((r) => {
+              pagedRows.map((r) => {
                 const overdue = r.dueDate && r.dueDate < today;
                 return (
                   <tr
@@ -259,6 +274,17 @@ export default function CustomersPage() {
             )}
           </tbody>
         </table>
+      </div>
+      {!loading && rows.length > 0 ? (
+        <TablePaginationBar
+          page={pagination.page}
+          totalPages={pagination.totalPages}
+          pageSize={pagination.pageSize}
+          totalCount={filteredRows.length}
+          onPageChange={pagination.setPage}
+          onPageSizeChange={pagination.setPageSize}
+        />
+      ) : null}
       </div>
 
       {modalOpen ? (

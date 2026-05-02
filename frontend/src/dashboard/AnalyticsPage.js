@@ -177,7 +177,7 @@ function OverdueBillsTable({ rows, totalLoadedCount, defaultPageSize = 10, reset
 }
 
 export default function AnalyticsPage() {
-  const apiBase = getApiBase();
+  const apiRoot = getApiBase() || '';
   const [cashSummary, setCashSummary] = useState(null);
   const [cashFlow, setCashFlow] = useState([]);
   const [bagSalesByDay, setBagSalesByDay] = useState([]);
@@ -191,9 +191,8 @@ export default function AnalyticsPage() {
   const [overdueListView, setOverdueListView] = useState('preview');
 
   const refreshChequeDepositQueue = useCallback(async () => {
-    if (!apiBase) return;
     try {
-      const res = await fetch(`${apiBase}/api/cheque-deposit-queue`);
+      const res = await fetch(`${apiRoot}/api/cheque-deposit-queue`);
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setChequeDepositQueue({ asOfDate: '', items: [] });
@@ -209,7 +208,7 @@ export default function AnalyticsPage() {
       setChequeDepositQueue({ asOfDate: '', items: [] });
       setChequeDepositErr('Could not reach server');
     }
-  }, [apiBase]);
+  }, [apiRoot]);
 
   const handleMarkChequeDeposited = useCallback(
     async (paymentId) => {
@@ -218,12 +217,11 @@ export default function AnalyticsPage() {
         setChequeDepositErr('Sign in with a username to record deposits.');
         return;
       }
-      if (!apiBase) return;
       setChequeDepositErr(null);
       setMarkingChequeId(paymentId);
       try {
         const res = await fetch(
-          `${apiBase}/api/payments/${encodeURIComponent(paymentId)}/cheque-deposited`,
+          `${apiRoot}/api/payments/${encodeURIComponent(paymentId)}/cheque-deposited`,
           {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
@@ -242,24 +240,20 @@ export default function AnalyticsPage() {
         setMarkingChequeId(null);
       }
     },
-    [apiBase, refreshChequeDepositQueue],
+    [apiRoot, refreshChequeDepositQueue],
   );
 
   useEffect(() => {
-    if (!apiBase) {
-      setCashDashLoading(false);
-      return undefined;
-    }
     let cancelled = false;
     (async () => {
       try {
         const [sumRes, flowRes, bagsRes, xferRes, overdueRes, chequeRes] = await Promise.all([
-          fetch(`${apiBase}/api/cash-summary`),
-          fetch(`${apiBase}/api/cash-flow?days=7`),
-          fetch(`${apiBase}/api/bag-sales-by-day?days=7`),
-          fetch(`${apiBase}/api/recent-transfers?limit=5`),
-          fetch(`${apiBase}/api/overdue-bills`),
-          fetch(`${apiBase}/api/cheque-deposit-queue`),
+          fetch(`${apiRoot}/api/cash-summary`),
+          fetch(`${apiRoot}/api/cash-flow?days=7`),
+          fetch(`${apiRoot}/api/bag-sales-by-day?days=7`),
+          fetch(`${apiRoot}/api/recent-transfers?limit=5`),
+          fetch(`${apiRoot}/api/overdue-bills`),
+          fetch(`${apiRoot}/api/cheque-deposit-queue`),
         ]);
         if (!cancelled) {
           if (sumRes.ok) setCashSummary(await sumRes.json());
@@ -318,7 +312,7 @@ export default function AnalyticsPage() {
     return () => {
       cancelled = true;
     };
-  }, [apiBase]);
+  }, [apiRoot]);
 
   const donutModel = useMemo(() => {
     const pending = Number(cashSummary?.pendingFromCustomers) || 0;

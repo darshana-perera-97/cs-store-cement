@@ -17,7 +17,7 @@ import RowDetailModal, { detailRowAttrs } from './RowDetailModal';
 const emptyForm = () => ({ username: '', password: '' });
 
 export default function UsersPage() {
-  const apiBase = getApiBase();
+  const apiRoot = getApiBase() || '';
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -30,11 +30,11 @@ export default function UsersPage() {
   const [detailUser, setDetailUser] = useState(null);
 
   const load = useCallback(async () => {
-    if (!apiBase || !isAdmin()) return;
+    if (!isAdmin()) return;
     setLoading(true);
     setError(null);
     try {
-      const res = await authFetch(`${apiBase}/api/users`);
+      const res = await authFetch(`${apiRoot}/api/users`);
       if (res.status === 403) {
         setError('Only the admin can view users.');
         setRows([]);
@@ -49,7 +49,7 @@ export default function UsersPage() {
     } finally {
       setLoading(false);
     }
-  }, [apiBase]);
+  }, [apiRoot]);
 
   useEffect(() => {
     load();
@@ -82,20 +82,12 @@ export default function UsersPage() {
     return <Navigate to="/dashboard/analytics" replace />;
   }
 
-  if (!apiBase) {
-    return (
-      <p className="rounded-[20px] bg-amber-50 px-4 py-3 text-sm text-amber-900 ring-1 ring-amber-100">
-        Set <code className="font-mono">REACT_APP_API_URL</code> to manage users.
-      </p>
-    );
-  }
-
   const handleSubmit = async (e) => {
     e.preventDefault();
     setSaving(true);
     setSaveError(null);
     try {
-      const res = await authFetch(`${apiBase}/api/users`, {
+      const res = await authFetch(`${apiRoot}/api/users`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -121,7 +113,7 @@ export default function UsersPage() {
     if (!window.confirm('Remove this user? They can no longer sign in.')) return;
     setDeletingId(id);
     try {
-      const res = await authFetch(`${apiBase}/api/users/${encodeURIComponent(id)}`, {
+      const res = await authFetch(`${apiRoot}/api/users/${encodeURIComponent(id)}`, {
         method: 'DELETE',
       });
       const data = await res.json().catch(() => ({}));

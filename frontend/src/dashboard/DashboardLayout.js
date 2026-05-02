@@ -111,12 +111,11 @@ export default function DashboardLayout() {
   const overdueCardTint = OVERDUE_PRIORITY_CARD[overduePriority] || OVERDUE_PRIORITY_CARD.none;
 
   useEffect(() => {
-    const api = getApiBase();
-    if (!api) return undefined;
+    const apiRoot = getApiBase() || '';
     let cancelled = false;
     async function load() {
       try {
-        const res = await fetch(`${api}/api/cash-summary`);
+        const res = await fetch(`${apiRoot}/api/cash-summary`);
         if (!cancelled && res.ok) setSidebarCashSummary(await res.json());
         else if (!cancelled) setSidebarCashSummary(null);
       } catch {
@@ -341,7 +340,7 @@ export default function DashboardLayout() {
 }
 
 function RightPanel() {
-  const apiBase = getApiBase();
+  const apiRoot = getApiBase() || '';
   const [stockSummary, setStockSummary] = useState(null);
   const [cashSummary, setCashSummary] = useState(null);
   const [recentActivities, setRecentActivities] = useState([]);
@@ -350,19 +349,13 @@ function RightPanel() {
   const [activityError, setActivityError] = useState(null);
 
   useEffect(() => {
-    if (!apiBase) {
-      setStockLoading(false);
-      setStockError('Set REACT_APP_API_URL to load live stock.');
-      return undefined;
-    }
-
     let cancelled = false;
 
     async function loadPanel() {
       try {
         const [stockRes, cashRes] = await Promise.all([
-          fetch(`${apiBase}/api/stocks/summary`),
-          fetch(`${apiBase}/api/cash-summary`),
+          fetch(`${apiRoot}/api/stocks/summary`),
+          fetch(`${apiRoot}/api/cash-summary`),
         ]);
 
         if (!cancelled) {
@@ -385,7 +378,7 @@ function RightPanel() {
           setStockError(null);
         }
 
-        const actRes = await fetch(`${apiBase}/api/activity?limit=5`);
+        const actRes = await fetch(`${apiRoot}/api/activity?limit=5`);
         if (!cancelled) {
           if (actRes.ok) {
             const act = await actRes.json();
@@ -415,7 +408,7 @@ function RightPanel() {
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [apiBase]);
+  }, [apiRoot]);
 
   return (
     <aside

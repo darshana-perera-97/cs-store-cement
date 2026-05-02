@@ -2,6 +2,7 @@
  * Backend API base URL for this frontend.
  *
  * - Production / custom: set `REACT_APP_API_URL` in `.env` (no trailing slash).
+ * - Production, unset: returns '' → calls use relative `/api/...` (same origin when SPA is served by the API).
  * - Local dev: if unset, uses {@link DEFAULT_DEV_API_URL} below — change only here for port/host.
  */
 export const DEFAULT_DEV_API_URL = 'http://localhost:1249';

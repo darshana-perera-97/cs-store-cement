@@ -1,3 +1,4 @@
+const fs = require('fs');
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '.env') });
 
@@ -1225,6 +1226,27 @@ app.post('/api/stocks', async (req, res) => {
   }
 });
 
+/** CRA production build: same process serves API + static assets + client routes (see SPA fallback below). */
+const FRONTEND_BUILD = path.resolve(
+  process.env.FRONTEND_BUILD_DIR || path.join(__dirname, '..', 'frontend', 'build')
+);
+const FRONTEND_INDEX = path.join(FRONTEND_BUILD, 'index.html');
+
+if (fs.existsSync(FRONTEND_INDEX)) {
+  app.use(express.static(FRONTEND_BUILD, { index: 'index.html' }));
+  app.use((req, res, next) => {
+    if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+    if (req.path.startsWith('/api')) return next();
+    res.sendFile(FRONTEND_INDEX, (err) => {
+      if (err) next(err);
+    });
+  });
+} else {
+  console.warn(
+    `[server] No frontend build at ${FRONTEND_INDEX} — only API. Run: cd frontend && npm run build (or set FRONTEND_BUILD_DIR).`
+  );
+}
+
 app.use((req, res) => {
   res.status(404).json({ error: 'Not found' });
 });
@@ -1236,4 +1258,7 @@ app.use((err, req, res, next) => {
 
 app.listen(PORT, () => {
   console.log(`Server listening on http://localhost:${PORT}`);
+  if (fs.existsSync(FRONTEND_INDEX)) {
+    console.log(`Serving SPA from ${FRONTEND_BUILD}`);
+  }
 });

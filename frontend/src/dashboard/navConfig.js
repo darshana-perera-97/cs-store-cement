@@ -30,6 +30,11 @@ export const DASHBOARD_NAV = [
     icon: 'wallet',
   },
   {
+    to: '/dashboard/bank',
+    label: 'Bank',
+    icon: 'bank',
+  },
+  {
     to: '/dashboard/promotions',
     label: 'Promotions',
     icon: 'gift',

@@ -36,6 +36,16 @@ export function TableFiltersBar({ children, hint, className = '' }) {
 export const filterControl =
   'mt-1 w-full rounded-xl border-0 bg-slate-100 px-3 py-2.5 text-sm ring-1 ring-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/35';
 
+/** Fixed overlay dialogs: cap height and scroll on short viewports (`min-h-0` keeps flex layouts from blocking overflow). */
+export const modalPanelClass =
+  'relative z-10 min-h-0 w-full max-h-[min(90vh,calc(100dvh-3rem))] max-w-lg overflow-y-auto overscroll-contain rounded-2xl bg-white p-6 shadow-2xl ring-1 ring-slate-200';
+
+export const modalPanelClassMd =
+  'relative z-10 min-h-0 w-full max-h-[min(90vh,calc(100dvh-3rem))] max-w-md overflow-y-auto overscroll-contain rounded-[20px] bg-white p-6 shadow-2xl ring-1 ring-slate-200';
+
+export const modalPanelClass2xl =
+  'relative z-10 min-h-0 w-full max-h-[min(90vh,calc(100dvh-3rem))] max-w-2xl overflow-y-auto overscroll-contain rounded-2xl bg-white p-6 shadow-2xl ring-1 ring-slate-200';
+
 /**
  * Wrapper for data tables: vertical + horizontal scroll with a max height so
  * `position: sticky` on `<thead>` keeps headers visible while scrolling rows.

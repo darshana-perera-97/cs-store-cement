@@ -1,17 +1,9 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { clearAuth, getToken, getUsername, isAdmin, isAuthed } from '../auth';
+import { getApiBase } from '../apiBase';
 import { DASHBOARD_NAV } from './navConfig';
 import { NavIcon } from './NavIcon';
-
-function getApiBase() {
-  const fromEnv = (process.env.REACT_APP_API_URL || '').trim().replace(/\/$/, '');
-  if (fromEnv) return fromEnv;
-  if (process.env.NODE_ENV === 'development') {
-    return 'http://localhost:1248';
-  }
-  return '';
-}
 
 function formatLkr(n) {
   return new Intl.NumberFormat(undefined, {

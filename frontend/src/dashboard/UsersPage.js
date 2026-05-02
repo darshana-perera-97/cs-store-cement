@@ -10,7 +10,9 @@ import {
   scrollTableWrap,
   stickyThead,
   useTablePagination,
+  modalPanelClassMd,
 } from './tableToolbar';
+import RowDetailModal, { detailRowAttrs } from './RowDetailModal';
 
 const emptyForm = () => ({ username: '', password: '' });
 
@@ -25,6 +27,7 @@ export default function UsersPage() {
   const [saveError, setSaveError] = useState(null);
   const [search, setSearch] = useState('');
   const [deletingId, setDeletingId] = useState(null);
+  const [detailUser, setDetailUser] = useState(null);
 
   const load = useCallback(async () => {
     if (!apiBase || !isAdmin()) return;
@@ -202,7 +205,11 @@ export default function UsersPage() {
                 pagedRows.map((r) => {
                   const isSelf = r.username === selfName;
                   return (
-                    <tr key={r.id} className="text-slate-700">
+                    <tr
+                      key={r.id}
+                      {...detailRowAttrs(() => setDetailUser(r), 'text-slate-700')}
+                      aria-label={`User ${r.username || ''}`}
+                    >
                       <td className="py-3.5 pl-4 pr-3 font-mono text-sm font-semibold text-slate-900">
                         {r.username}
                         {isSelf ? (
@@ -217,7 +224,10 @@ export default function UsersPage() {
                         <button
                           type="button"
                           disabled={deletingId === r.id}
-                          onClick={() => handleDelete(r.id)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDelete(r.id);
+                          }}
                           className="rounded-lg px-3 py-1.5 text-xs font-semibold text-rose-600 transition hover:bg-rose-50 disabled:opacity-50"
                         >
                           {deletingId === r.id ? 'Removing…' : 'Remove'}
@@ -250,7 +260,7 @@ export default function UsersPage() {
           aria-modal="true"
           aria-labelledby="users-modal-title"
         >
-          <div className="w-full max-w-md rounded-[20px] bg-white p-6 shadow-2xl ring-1 ring-slate-200">
+          <div className={modalPanelClassMd}>
             <h2 id="users-modal-title" className="text-lg font-bold text-slate-900">
               Add staff user
             </h2>
@@ -311,6 +321,14 @@ export default function UsersPage() {
           </div>
         </div>
       ) : null}
+
+      <RowDetailModal
+        open={!!detailUser}
+        row={detailUser}
+        title="User details"
+        subtitle={detailUser?.username || null}
+        onClose={() => setDetailUser(null)}
+      />
     </div>
   );
 }

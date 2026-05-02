@@ -43,6 +43,16 @@ export function NavIcon({ name, active }) {
           />
         </svg>
       );
+    case 'bank':
+      return (
+        <svg className={c} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5} aria-hidden>
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M2.25 18.75h19.5M2.25 7.5l9.603-3.21a.75.75 0 01.494 0l9.603 3.21A2.25 2.25 0 0121 9.504v.818a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 10.322v-.818a2.25 2.25 0 011.128-1.806zM6 18.75v-7.5m4.5 7.5v-7.5m4.5 7.5v-7.5m4.5 7.5v-7.5"
+          />
+        </svg>
+      );
     case 'gift':
       return (
         <svg className={c} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5} aria-hidden>

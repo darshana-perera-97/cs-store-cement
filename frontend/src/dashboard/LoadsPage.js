@@ -11,7 +11,9 @@ import {
   scrollTableWrap,
   stickyTheadTransparent,
   useTablePagination,
+  modalPanelClass2xl,
 } from './tableToolbar';
+import RowDetailModal, { detailRowAttrs } from './RowDetailModal';
 
 const apiBase = getApiBase();
 
@@ -23,12 +25,20 @@ const emptyForm = () => ({
   vehicleNumber: '',
   tokyoBags: '',
   tokyoCost: '',
+  tokyoInvoice: '',
+  tokyoCheque: '',
   samudraBags: '',
   samudraCost: '',
+  samudraInvoice: '',
+  samudraCheque: '',
   atlasBags: '',
   atlasCost: '',
+  atlasInvoice: '',
+  atlasCheque: '',
   nipponBags: '',
   nipponCost: '',
+  nipponInvoice: '',
+  nipponCheque: '',
 });
 
 /** Next ID after the highest existing STK-nnnn (or plain number); defaults to STK-0001. */
@@ -58,6 +68,12 @@ function money(n) {
   }).format(Number(n) || 0);
 }
 
+/** Bags ≥ 1 means invoice + cheque must be filled for that brand (any letters/digits in those fields). */
+function brandNeedsInvoiceCheque(bagsValue) {
+  const n = Number(bagsValue);
+  return Number.isFinite(n) && n >= 1;
+}
+
 export default function LoadsPage() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -69,6 +85,7 @@ export default function LoadsPage() {
   const [search, setSearch] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [detailRow, setDetailRow] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -95,6 +112,8 @@ export default function LoadsPage() {
       if (!inDateRange(r.date, dateFrom, dateTo)) return false;
       const costParts = BRANDS.map((b) => String(r[`${b.key}Cost`] ?? ''));
       const bagParts = BRANDS.map((b) => String(r[`${b.key}Bags`] ?? ''));
+      const invParts = BRANDS.map((b) => String(r[`${b.key}Invoice`] ?? ''));
+      const chqParts = BRANDS.map((b) => String(r[`${b.key}Cheque`] ?? ''));
       return rowMatchesQuery(search, [
         r.date,
         r.stockId,
@@ -103,6 +122,8 @@ export default function LoadsPage() {
         String(r.totalAmount ?? ''),
         ...bagParts,
         ...costParts,
+        ...invParts,
+        ...chqParts,
       ]);
     });
   }, [rows, search, dateFrom, dateTo]);
@@ -164,6 +185,20 @@ export default function LoadsPage() {
       setSaveError('You need to be signed in with a username.');
       return;
     }
+    const missingRefs = [];
+    for (const b of BRANDS) {
+      if (!brandNeedsInvoiceCheque(form[`${b.key}Bags`])) continue;
+      const inv = String(form[`${b.key}Invoice`] ?? '').trim();
+      const chq = String(form[`${b.key}Cheque`] ?? '').trim();
+      if (!inv) missingRefs.push(`${b.label} invoice number`);
+      if (!chq) missingRefs.push(`${b.label} cheque number`);
+    }
+    if (missingRefs.length > 0) {
+      setSaveError(
+        `When bags are 1 or more for a brand, invoice and cheque numbers are required (letters and numbers allowed). Missing: ${missingRefs.join(', ')}.`,
+      );
+      return;
+    }
     setSaving(true);
     setSaveError(null);
     try {
@@ -177,12 +212,20 @@ export default function LoadsPage() {
           vehicleNumber: form.vehicleNumber.trim(),
           tokyoBags: form.tokyoBags,
           tokyoCost: form.tokyoCost,
+          tokyoInvoice: form.tokyoInvoice,
+          tokyoCheque: form.tokyoCheque,
           samudraBags: form.samudraBags,
           samudraCost: form.samudraCost,
+          samudraInvoice: form.samudraInvoice,
+          samudraCheque: form.samudraCheque,
           atlasBags: form.atlasBags,
           atlasCost: form.atlasCost,
+          atlasInvoice: form.atlasInvoice,
+          atlasCheque: form.atlasCheque,
           nipponBags: form.nipponBags,
           nipponCost: form.nipponCost,
+          nipponInvoice: form.nipponInvoice,
+          nipponCheque: form.nipponCheque,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -233,7 +276,7 @@ export default function LoadsPage() {
             type="search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Stock ID, vehicle, staff, bags, costs…"
+            placeholder="Stock ID, vehicle, invoice, cheque, bags, costs…"
             className={filterControl}
           />
         </label>
@@ -259,7 +302,7 @@ export default function LoadsPage() {
 
       <div className="space-y-3">
       <div className={scrollTableWrap}>
-        <table className="w-full min-w-[1100px] border-separate border-spacing-0 text-left text-sm">
+        <table className="w-full min-w-[1680px] border-separate border-spacing-0 text-left text-sm">
           <thead className={stickyTheadTransparent}>
             <tr className="border-b border-slate-100 bg-slate-50/90 text-xs font-semibold uppercase tracking-wide text-slate-500">
               <th rowSpan={2} className="whitespace-nowrap px-3 py-3 align-bottom">
@@ -274,7 +317,7 @@ export default function LoadsPage() {
               {BRANDS.map((b) => (
                 <th
                   key={b.key}
-                  colSpan={2}
+                  colSpan={4}
                   className={`px-2 py-2 text-center font-bold tracking-wide ${b.ledger.head}`}
                 >
                   {b.label}
@@ -292,6 +335,8 @@ export default function LoadsPage() {
                 <Fragment key={b.key}>
                   <th className={`px-2 py-2 text-center ${b.ledger.sub}`}>Bags</th>
                   <th className={`px-2 py-2 text-center ${b.ledger.sub}`}>Cost</th>
+                  <th className={`px-2 py-2 text-center ${b.ledger.sub}`}>Invoice</th>
+                  <th className={`px-2 py-2 text-center ${b.ledger.sub}`}>Cheque</th>
                 </Fragment>
               ))}
             </tr>
@@ -299,19 +344,19 @@ export default function LoadsPage() {
           <tbody className="divide-y divide-slate-100 text-slate-800">
             {loading ? (
               <tr>
-                <td colSpan={13} className="px-4 py-10 text-center text-slate-500">
+                <td colSpan={21} className="px-4 py-10 text-center text-slate-500">
                   Loading…
                 </td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={13} className="px-4 py-10 text-center text-slate-500">
+                <td colSpan={21} className="px-4 py-10 text-center text-slate-500">
                   No stock loads yet. Use &quot;Add a Stock&quot; to create a record.
                 </td>
               </tr>
             ) : filteredRows.length === 0 ? (
               <tr>
-                <td colSpan={13} className="px-4 py-10 text-center text-slate-500">
+                <td colSpan={21} className="px-4 py-10 text-center text-slate-500">
                   No loads match your search or filters.
                 </td>
               </tr>
@@ -319,7 +364,11 @@ export default function LoadsPage() {
               pagedRows.map((r) => {
                 const rowLine = 'border-b border-slate-100/90';
                 return (
-                  <tr key={r.id}>
+                  <tr
+                    key={r.id}
+                    {...detailRowAttrs(() => setDetailRow(r))}
+                    aria-label={`Load ${r.stockId ?? r.id ?? ''} details`}
+                  >
                     <td
                       className={`whitespace-nowrap px-3 py-3 font-medium ${rowLine} bg-slate-50/70 text-slate-800`}
                     >
@@ -329,20 +378,36 @@ export default function LoadsPage() {
                     <td className={`whitespace-nowrap px-3 py-3 ${rowLine} bg-slate-50/70`}>
                       {r.vehicleNumber}
                     </td>
-                    {BRANDS.map((b) => (
-                      <Fragment key={b.key}>
-                        <td
-                          className={`px-2 py-3 text-center tabular-nums transition-colors hover:brightness-[0.98] ${rowLine} ${b.ledger.cellLead}`}
-                        >
-                          {r[`${b.key}Bags`] ?? 0}
-                        </td>
-                        <td
-                          className={`px-2 py-3 text-right tabular-nums transition-colors hover:brightness-[0.98] ${rowLine} ${b.ledger.cell} text-slate-900`}
-                        >
-                          {money(r[`${b.key}Cost`])}
-                        </td>
-                      </Fragment>
-                    ))}
+                    {BRANDS.map((b) => {
+                      const inv = String(r[`${b.key}Invoice`] ?? '').trim();
+                      const chq = String(r[`${b.key}Cheque`] ?? '').trim();
+                      return (
+                        <Fragment key={b.key}>
+                          <td
+                            className={`px-2 py-3 text-center tabular-nums transition-colors hover:brightness-[0.98] ${rowLine} ${b.ledger.cellLead}`}
+                          >
+                            {r[`${b.key}Bags`] ?? 0}
+                          </td>
+                          <td
+                            className={`px-2 py-3 text-right tabular-nums transition-colors hover:brightness-[0.98] ${rowLine} ${b.ledger.cell} text-slate-900`}
+                          >
+                            {money(r[`${b.key}Cost`])}
+                          </td>
+                          <td
+                            className={`max-w-[7rem] truncate px-2 py-3 text-xs text-slate-700 ${rowLine} ${b.ledger.cell}`}
+                            title={inv || undefined}
+                          >
+                            {inv || '—'}
+                          </td>
+                          <td
+                            className={`max-w-[7rem] truncate px-2 py-3 text-xs text-slate-700 ${rowLine} ${b.ledger.cell}`}
+                            title={chq || undefined}
+                          >
+                            {chq || '—'}
+                          </td>
+                        </Fragment>
+                      );
+                    })}
                     <td
                       className={`border-l border-slate-100 px-3 py-3 text-right font-semibold text-slate-900 tabular-nums ${rowLine} bg-white`}
                     >
@@ -372,6 +437,8 @@ export default function LoadsPage() {
                     <td className={`px-2 py-3 text-right tabular-nums text-slate-900 ${b.ledger.cell} brightness-[1.02]`}>
                       {money(filteredTotals[`${b.key}Cost`])}
                     </td>
+                    <td className={`px-2 py-3 ${b.ledger.cell} brightness-[1.02]`} />
+                    <td className={`px-2 py-3 ${b.ledger.cell} brightness-[1.02]`} />
                   </Fragment>
                 ))}
                 <td className="border-l border-slate-200 bg-indigo-50/60 px-3 py-3 text-right text-indigo-900 tabular-nums">
@@ -398,7 +465,7 @@ export default function LoadsPage() {
       {modalOpen ? (
         <div className="fixed inset-0 z-[100] flex items-end justify-center p-4 sm:items-center" role="dialog" aria-modal="true" aria-labelledby="loads-modal-title">
           <button type="button" className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" aria-label="Close" onClick={closeModal} />
-          <div className="relative z-10 w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl ring-1 ring-slate-200">
+          <div className={modalPanelClass2xl}>
             <h2 id="loads-modal-title" className="text-lg font-bold text-slate-900">
               Add a stock load
             </h2>
@@ -451,35 +518,75 @@ export default function LoadsPage() {
                 </label>
               </div>
               <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Cement bags & cost</p>
-                <div className="mt-3 space-y-3">
-                  {BRANDS.map((b) => (
-                    <div key={b.key} className="grid grid-cols-3 items-end gap-2">
-                      <span className="col-span-3 text-sm font-medium text-slate-700 sm:col-span-1">{b.label}</span>
-                      <label className="text-xs text-slate-500">
-                        Bags
-                        <input
-                          type="number"
-                          min={0}
-                          step={1}
-                          value={form[`${b.key}Bags`]}
-                          onChange={(e) => handleFormChange(`${b.key}Bags`, e.target.value)}
-                          className="mt-0.5 w-full rounded-lg border-0 bg-white px-2 py-2 text-sm tabular-nums ring-1 ring-slate-200"
-                        />
-                      </label>
-                      <label className="text-xs text-slate-500">
-                        Cost (LKR)
-                        <input
-                          type="number"
-                          min={0}
-                          step={0.01}
-                          value={form[`${b.key}Cost`]}
-                          onChange={(e) => handleFormChange(`${b.key}Cost`, e.target.value)}
-                          className="mt-0.5 w-full rounded-lg border-0 bg-white px-2 py-2 text-sm tabular-nums ring-1 ring-slate-200"
-                        />
-                      </label>
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Cement bags, cost, invoice & cheque (per brand)
+                </p>
+                <p className="mt-1 text-xs text-slate-500">
+                  If bags are <span className="font-medium text-slate-600">1 or more</span> for a brand, enter both invoice and cheque references for that brand. Letters, numbers, and symbols are allowed (e.g. INV-12A, CHQ/B458).
+                </p>
+                <div className="mt-3 space-y-4">
+                  {BRANDS.map((b) => {
+                    const needRefs = brandNeedsInvoiceCheque(form[`${b.key}Bags`]);
+                    const refRing = needRefs ? 'ring-amber-200' : 'ring-slate-200';
+                    return (
+                    <div
+                      key={b.key}
+                      className="rounded-lg border border-slate-100 bg-white/90 p-3 shadow-sm ring-1 ring-slate-100/80"
+                    >
+                      <p className="mb-2 text-sm font-semibold text-slate-800">{b.label}</p>
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                        <label className="text-xs text-slate-500">
+                          Bags
+                          <input
+                            type="number"
+                            min={0}
+                            step={1}
+                            value={form[`${b.key}Bags`]}
+                            onChange={(e) => handleFormChange(`${b.key}Bags`, e.target.value)}
+                            className="mt-0.5 w-full rounded-lg border-0 bg-slate-50 px-2 py-2 text-sm tabular-nums ring-1 ring-slate-200"
+                          />
+                        </label>
+                        <label className="text-xs text-slate-500">
+                          Cost (LKR)
+                          <input
+                            type="number"
+                            min={0}
+                            step={0.01}
+                            value={form[`${b.key}Cost`]}
+                            onChange={(e) => handleFormChange(`${b.key}Cost`, e.target.value)}
+                            className="mt-0.5 w-full rounded-lg border-0 bg-slate-50 px-2 py-2 text-sm tabular-nums ring-1 ring-slate-200"
+                          />
+                        </label>
+                        <label className={`block text-xs ${needRefs ? 'font-medium text-slate-700' : 'text-slate-500'}`}>
+                          Invoice no.{needRefs ? ' *' : ''}
+                          <input
+                            type="text"
+                            inputMode="text"
+                            value={form[`${b.key}Invoice`]}
+                            onChange={(e) => handleFormChange(`${b.key}Invoice`, e.target.value)}
+                            className={`mt-0.5 w-full rounded-lg border-0 bg-slate-50 px-2 py-2 text-sm ring-1 ${refRing} focus:outline-none focus:ring-2 focus:ring-indigo-500/35`}
+                            autoComplete="off"
+                            spellCheck={false}
+                            aria-required={needRefs}
+                          />
+                        </label>
+                        <label className={`block text-xs ${needRefs ? 'font-medium text-slate-700' : 'text-slate-500'}`}>
+                          Cheque no.{needRefs ? ' *' : ''}
+                          <input
+                            type="text"
+                            inputMode="text"
+                            value={form[`${b.key}Cheque`]}
+                            onChange={(e) => handleFormChange(`${b.key}Cheque`, e.target.value)}
+                            className={`mt-0.5 w-full rounded-lg border-0 bg-slate-50 px-2 py-2 text-sm ring-1 ${refRing} focus:outline-none focus:ring-2 focus:ring-indigo-500/35`}
+                            autoComplete="off"
+                            spellCheck={false}
+                            aria-required={needRefs}
+                          />
+                        </label>
+                      </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
               <div className="flex flex-wrap justify-end gap-2 pt-2">
@@ -502,6 +609,14 @@ export default function LoadsPage() {
           </div>
         </div>
       ) : null}
+
+      <RowDetailModal
+        open={!!detailRow}
+        row={detailRow}
+        title="Load details"
+        subtitle={detailRow ? String(detailRow.stockId || '').trim() || detailRow.id || '' : null}
+        onClose={() => setDetailRow(null)}
+      />
     </div>
   );
 }

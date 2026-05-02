@@ -9,10 +9,11 @@ import {
   inDateRange,
   rowMatchesQuery,
   scrollTableWrap,
-  stickyThead,
   stickyTheadTransparent,
   useTablePagination,
+  modalPanelClass,
 } from './tableToolbar';
+import RowDetailModal, { detailRowAttrs } from './RowDetailModal';
 
 const apiBase = getApiBase();
 
@@ -24,22 +25,10 @@ function money(n) {
   }).format(Number(n) || 0);
 }
 
-function suggestStockIdFromLoads(loads) {
-  if (!Array.isArray(loads) || loads.length === 0) return 'STK-0001';
-  const sorted = [...loads].sort((a, b) => {
-    const ta = new Date(a.createdAt || `${a.date}T12:00:00`).getTime();
-    const tb = new Date(b.createdAt || `${b.date}T12:00:00`).getTime();
-    return tb - ta;
-  });
-  const sid = String(sorted[0].stockId || '').trim();
-  return sid || 'STK-0001';
-}
-
 function emptyForm() {
   const f = {
     date: new Date().toISOString().slice(0, 10),
     customerId: '',
-    stockId: 'STK-0001',
   };
   for (const b of BRANDS) {
     f[`${b.key}Bags`] = '';
@@ -129,20 +118,10 @@ export default function BillsPage() {
     [filteredRows, pagination.offset, pagination.pageSize]
   );
 
-  const openAdd = async () => {
+  const openAdd = () => {
     setSaveError(null);
     loadCustomers();
-    let suggested = 'STK-0001';
-    try {
-      const res = await fetch(`${apiBase}/api/stocks`);
-      if (res.ok) {
-        const list = await res.json();
-        suggested = suggestStockIdFromLoads(Array.isArray(list) ? list : []);
-      }
-    } catch {
-      /* keep sample default */
-    }
-    setForm({ ...emptyForm(), stockId: suggested });
+    setForm(emptyForm());
     setAddOpen(true);
   };
 
@@ -175,7 +154,6 @@ export default function BillsPage() {
         enteredBy: username,
         date: form.date,
         customerName: String(selected.name || '').trim(),
-        stockId: String(form.stockId ?? '').trim(),
       };
       for (const b of BRANDS) {
         body[`${b.key}Bags`] = form[`${b.key}Bags`];
@@ -206,9 +184,8 @@ export default function BillsPage() {
         <p className="text-sm text-slate-500">
           Credit sales of cement bags (Tokyo, Samudra, Atlas, Nippon) to customers. The customer must exist on the{' '}
           <span className="font-medium text-slate-700">Customers</span> page first. Unit price is per bag; total bill
-          is the sum of line amounts. With a Stock ID, saving subtracts sold bags from that load in{' '}
-          <span className="font-medium text-slate-700">Loads</span> (and the bag cards on{' '}
-          <span className="font-medium text-slate-700">Stock</span>). Every bill also adds bag totals to{' '}
+          is the sum of line amounts. Sold bags are counted against your overall stock (all loads combined): you cannot
+          sell more bags per brand than remain after earlier bills and promotions. Every bill also adds bag totals to{' '}
           <span className="font-medium text-slate-700">Out</span> on the bill date in the daily ledger (
           <span className="font-medium text-slate-700">Stock</span> page table).
         </p>
@@ -296,25 +273,24 @@ export default function BillsPage() {
               <th className="whitespace-nowrap border-l border-slate-100 px-3 py-3 align-bottom text-right">
                 Total bill
               </th>
-              <th className="whitespace-nowrap px-3 py-3 align-bottom text-center"> </th>
             </tr>
           </thead>
           <tbody className="text-slate-800">
             {loading ? (
               <tr>
-                <td colSpan={9} className="px-4 py-10 text-center text-slate-500">
+                <td colSpan={8} className="px-4 py-10 text-center text-slate-500">
                   Loading…
                 </td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={9} className="px-4 py-10 text-center text-slate-500">
+                <td colSpan={8} className="px-4 py-10 text-center text-slate-500">
                   No credit bills yet. Use &quot;Record credit sale&quot; to add one.
                 </td>
               </tr>
             ) : filteredRows.length === 0 ? (
               <tr>
-                <td colSpan={9} className="px-4 py-10 text-center text-slate-500">
+                <td colSpan={8} className="px-4 py-10 text-center text-slate-500">
                   No bills match your search or filters.
                 </td>
               </tr>
@@ -322,7 +298,11 @@ export default function BillsPage() {
               pagedRows.map((r) => {
                 const rowLine = 'border-b border-slate-100/90';
                 return (
-                  <tr key={r.id}>
+                  <tr
+                    key={r.id}
+                    {...detailRowAttrs(() => setDetailBill(r))}
+                    aria-label={`Credit bill ${r.customerName || ''}`}
+                  >
                     <td className={`whitespace-nowrap px-3 py-3 font-medium ${rowLine} bg-slate-50/70 tabular-nums`}>
                       {r.date}
                     </td>
@@ -346,15 +326,6 @@ export default function BillsPage() {
                       className={`border-l border-slate-100 px-3 py-3 text-right font-semibold tabular-nums text-slate-900 ${rowLine} bg-white`}
                     >
                       {money(r.totalAmount)}
-                    </td>
-                    <td className={`px-3 py-3 text-center ${rowLine} bg-white`}>
-                      <button
-                        type="button"
-                        onClick={() => setDetailBill(r)}
-                        className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-800 transition hover:bg-indigo-100"
-                      >
-                        View more
-                      </button>
                     </td>
                   </tr>
                 );
@@ -383,7 +354,7 @@ export default function BillsPage() {
           aria-labelledby="bills-add-title"
         >
           <button type="button" className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" aria-label="Close" onClick={closeAdd} />
-          <div className="relative z-10 max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl ring-1 ring-slate-200">
+          <div className={modalPanelClass}>
             <h2 id="bills-add-title" className="text-lg font-bold text-slate-900">
               Record credit sale
             </h2>
@@ -393,7 +364,7 @@ export default function BillsPage() {
                 <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-800 ring-1 ring-red-100">{saveError}</p>
               ) : null}
               <div className="grid gap-3 sm:grid-cols-2">
-                <label className="block text-sm font-medium text-slate-600">
+                <label className="block text-sm font-medium text-slate-600 sm:col-span-2">
                   Date
                   <input
                     type="date"
@@ -401,18 +372,6 @@ export default function BillsPage() {
                     value={form.date}
                     onChange={(e) => handleFormChange('date', e.target.value)}
                     className="mt-1 w-full rounded-xl border-0 bg-slate-100 px-3 py-2.5 text-sm ring-1 ring-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/35"
-                  />
-                </label>
-                <label className="block text-sm font-medium text-slate-600">
-                  Stock (load Stock ID)
-                  <input
-                    type="text"
-                    value={form.stockId}
-                    onChange={(e) => handleFormChange('stockId', e.target.value)}
-                    className="mt-1 w-full rounded-xl border-0 bg-slate-100 px-3 py-2.5 font-mono text-sm ring-1 ring-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/35"
-                    placeholder="STK-0001"
-                    autoComplete="off"
-                    spellCheck={false}
                   />
                 </label>
                 <label className="block text-sm font-medium text-slate-600 sm:col-span-2">
@@ -488,79 +447,17 @@ export default function BillsPage() {
         </div>
       ) : null}
 
-      {detailBill ? (
-        <div
-          className="fixed inset-0 z-[110] flex items-end justify-center p-4 sm:items-center"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="bills-detail-title"
-        >
-          <button
-            type="button"
-            className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
-            aria-label="Close"
-            onClick={() => setDetailBill(null)}
-          />
-          <div className="relative z-10 w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl ring-1 ring-slate-200">
-            <h2 id="bills-detail-title" className="text-lg font-bold text-slate-900">
-              Bill detail
-            </h2>
-            <p className="mt-1 text-sm text-slate-500">
-              {detailBill.date}
-              {detailBill.stockId ? (
-                <>
-                  {' '}
-                  ·{' '}
-                  <span className="font-mono font-semibold text-slate-700">{detailBill.stockId}</span>
-                </>
-              ) : null}{' '}
-              · {detailBill.customerName}
-            </p>
-            <div className="mt-4 max-h-64 overflow-auto rounded-xl ring-1 ring-slate-100">
-              <table className="w-full border-separate border-spacing-0 text-sm">
-                <thead className={stickyThead}>
-                  <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    <th className="px-3 py-2">Brand</th>
-                    <th className="px-2 py-2 text-center">Bags</th>
-                    <th className="px-2 py-2 text-right">Price / bag</th>
-                    <th className="px-3 py-2 text-right">Line</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {BRANDS.map((b) => (
-                    <tr key={b.key}>
-                      <td className={`px-3 py-2.5 font-medium ${b.ledger.cellLead}`}>{b.label}</td>
-                      <td className={`px-2 py-2.5 text-center tabular-nums ${b.ledger.cell}`}>
-                        {detailBill[`${b.key}Bags`] ?? 0}
-                      </td>
-                      <td className={`px-2 py-2.5 text-right tabular-nums text-slate-800 ${b.ledger.cell}`}>
-                        {money(detailBill[`${b.key}UnitPrice`])}
-                      </td>
-                      <td className={`px-3 py-2.5 text-right font-semibold tabular-nums text-slate-900 ${b.ledger.cell}`}>
-                        {money(detailBill[`${b.key}Line`])}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div className="mt-4 flex items-center justify-between rounded-xl bg-indigo-50 px-4 py-3 ring-1 ring-indigo-100">
-              <span className="text-sm font-semibold text-indigo-950">Total bill</span>
-              <span className="text-lg font-bold tabular-nums text-indigo-900">{money(detailBill.totalAmount)}</span>
-            </div>
-            <p className="mt-3 text-sm text-slate-600">
-              <span className="font-medium text-slate-700">Entered by:</span> {detailBill.enteredBy || '—'}
-            </p>
-            <button
-              type="button"
-              onClick={() => setDetailBill(null)}
-              className="mt-5 w-full rounded-xl border border-slate-200 bg-white py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-            >
-              Close
-            </button>
-          </div>
-        </div>
-      ) : null}
+      <RowDetailModal
+        open={!!detailBill}
+        row={detailBill}
+        title="Bill details"
+        subtitle={
+          detailBill
+            ? [detailBill.date, detailBill.customerName].filter(Boolean).join(' · ')
+            : null
+        }
+        onClose={() => setDetailBill(null)}
+      />
     </div>
   );
 }

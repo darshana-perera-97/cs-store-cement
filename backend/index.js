@@ -3,7 +3,7 @@ require('dotenv').config({ path: path.join(__dirname, '.env') });
 
 const express = require('express');
 const cors = require('cors');
-const { readStocks, writeStocks, toNonNegNumber } = require('./stocksStore');
+const { readStocks, writeStocks, toNonNegNumber, sumLoadBagsByBrand } = require('./stocksStore');
 const {
   refreshLiveStockFromSources,
   getLiveStockSummary,
@@ -15,8 +15,12 @@ const {
   toNonNegMoney,
   defaultDueDateYmd,
 } = require('./customersStore');
-const { normalizeCustomerName, computeRemainingAmount } = require('./customerBalance');
-const { readBills, writeBills, lineTotal, sumBagsOnBillsForStockId } = require('./billsStore');
+const {
+  normalizeCustomerName,
+  computeRemainingAmount,
+  paymentCreditToCustomer,
+} = require('./customerBalance');
+const { readBills, writeBills, lineTotal, sumAllBillBagsByBrand } = require('./billsStore');
 const {
   readPayments,
   writePayments,
@@ -33,10 +37,10 @@ const {
   deleteUserById,
   toPublicUser,
 } = require('./usersStore');
-const { readPromotions, writePromotions } = require('./promotionsStore');
+const { readPromotions, writePromotions, sumAllPromotionBagsByBrand } = require('./promotionsStore');
 
 const app = express();
-const PORT = Number(process.env.PORT) || 1248;
+const PORT = Number(process.env.PORT) || 1249;
 
 app.use(cors({ origin: process.env.CORS_ORIGIN || true }));
 app.use(express.json());
@@ -64,7 +68,7 @@ app.get('/api/cash-summary', async (req, res) => {
     }
     let cashReceivedFromCustomers = 0;
     for (const p of payments) {
-      cashReceivedFromCustomers += toNonNegMoney(p.amount);
+      cashReceivedFromCustomers += paymentCreditToCustomer(p);
     }
     const round2 = (n) => Math.round(Number(n) * 100) / 100;
     const overdueRows = collectOverdueBillRows(customers, bills, payments);
@@ -110,6 +114,28 @@ function lastNDaysYmdLocal(n) {
 /** Credit bills are treated as due for payment by bill date + this many days (local calendar). */
 const BILL_SETTLEMENT_DAYS = 14;
 
+/** How a payment settled the account (customer transaction list). */
+function paymentSettlementSummary(p) {
+  const credit = paymentCreditToCustomer(p);
+  if (credit <= 0) return null;
+  const cash = toNonNegMoney(p?.cashAmount);
+  const chq = toNonNegMoney(p?.chequeAmount);
+  if (cash <= 0 && chq <= 0) {
+    return `Settled LKR ${credit}`;
+  }
+  const parts = [];
+  if (cash > 0) parts.push(`cash LKR ${cash}`);
+  if (chq > 0) {
+    let s = `cheque LKR ${chq}`;
+    const n = String(p?.chequeNumber ?? '').trim();
+    const d = String(p?.chequeDate ?? '').trim();
+    if (n) s += ` #${n}`;
+    if (d) s += ` · ${d}`;
+    parts.push(s);
+  }
+  return parts.length ? `Settled: ${parts.join(' · ')}` : `Settled LKR ${credit}`;
+}
+
 function ymdTodayLocal() {
   const d = new Date();
   const y = d.getFullYear();
@@ -132,33 +158,32 @@ function addDaysToYmd(ymd, days) {
 
 const BILL_BAG_BRANDS = ['tokyo', 'samudra', 'atlas', 'nippon'];
 
+const BILL_BRAND_LABEL = {
+  tokyo: 'Tokyo',
+  samudra: 'Samudra',
+  atlas: 'Atlas',
+  nippon: 'Nippon',
+};
+
 /**
- * New bill must not exceed original load bags minus prior bills for the same stock ID.
- * Load rows in loads.json are not reduced when saving bills.
+ * Bill line quantities must not exceed available bags pool-wide:
+ * (sum of all load arrivals) − (all credit bills) − (promotional outs).
+ * Matches live stock; loads.json rows are not mutated when bills are saved.
  */
-function validateBillAgainstLoadedStock(loads, existingBills, stockId, billBagFields) {
-  const sid = String(stockId ?? '').trim();
-  if (!sid) return { ok: true };
-
-  const load = loads.find((s) => String(s.stockId || '').trim() === sid);
-  if (!load) {
-    return {
-      ok: false,
-      error: `No load with Stock ID "${sid}". Add it on Loads or correct the Stock ID on the bill.`,
-    };
-  }
-
-  const used = sumBagsOnBillsForStockId(existingBills, sid);
+function validateBillAgainstPooledStock(loads, existingBills, promotions, billBagFields) {
+  const loaded = sumLoadBagsByBrand(loads);
+  const soldSoFar = sumAllBillBagsByBrand(existingBills);
+  const promoOut = sumAllPromotionBagsByBrand(promotions);
   for (const k of BILL_BAG_BRANDS) {
-    const field = `${k}Bags`;
-    const cap = toNonNegNumber(load[field]);
-    const already = used[k];
-    const need = toNonNegNumber(billBagFields[field]);
-    const left = cap - already;
-    if (need > left) {
+    const available = Math.max(
+      0,
+      toNonNegNumber(loaded[k]) - toNonNegNumber(soldSoFar[k]) - toNonNegNumber(promoOut[k]),
+    );
+    const need = toNonNegNumber(billBagFields[`${k}Bags`]);
+    if (need > available) {
       return {
         ok: false,
-        error: `Not enough ${k} bags on load ${sid}: ${Math.max(0, left)} left after earlier sales, this bill needs ${need}.`,
+        error: `Not enough ${BILL_BRAND_LABEL[k]} bags in stock: ${available} available, this bill needs ${need}.`,
       };
     }
   }
@@ -212,7 +237,7 @@ function collectOverdueBillRows(customers, bills, payments) {
     const custBills = bills.filter((b) => normalizeCustomerName(b.customerName) === nk);
     let paySum = 0;
     for (const p of payments) {
-      if (p.customerId === cust.id) paySum += toNonNegMoney(p.amount);
+      if (p.customerId === cust.id) paySum += paymentCreditToCustomer(p);
     }
     const sortedBills = [...custBills].sort((a, b) => {
       const cmp = String(a.date).localeCompare(String(b.date));
@@ -257,7 +282,7 @@ function collectOverdueBillRows(customers, bills, payments) {
   for (const [nk, obills] of orphanBillsByNk) {
     let paySum = 0;
     for (const p of payments) {
-      if (normalizeCustomerName(p.customerName) === nk) paySum += toNonNegMoney(p.amount);
+      if (normalizeCustomerName(p.customerName) === nk) paySum += paymentCreditToCustomer(p);
     }
     const sortedBills = [...obills].sort((a, b) => {
       const cmp = String(a.date).localeCompare(String(b.date));
@@ -317,7 +342,7 @@ app.get('/api/cash-flow', async (req, res) => {
     for (const p of payments) {
       const d = String(p.date ?? '').slice(0, 10);
       if (!daySet.has(d)) continue;
-      inByDate[d] += toNonNegMoney(p.amount);
+      inByDate[d] += paymentCreditToCustomer(p);
     }
     for (const s of stocks) {
       const d = String(s.date ?? '').slice(0, 10);
@@ -382,12 +407,12 @@ app.get('/api/recent-transfers', async (req, res) => {
       const title = String(p.customerName ?? '').trim() || 'Customer payment';
       const billNum = String(p.billNumber ?? '').trim();
       rows.push({
-        id: id ? `payment-${id}` : `payment-${at}-${billNum}-${toNonNegMoney(p.amount)}`,
+        id: id ? `payment-${id}` : `payment-${at}-${billNum}-${paymentCreditToCustomer(p)}`,
         kind: 'payment_in',
         at,
         title,
         subtitle: billNum ? `Bill #${billNum} · Payment in` : 'Payment in',
-        amount: toNonNegMoney(p.amount),
+        amount: paymentCreditToCustomer(p),
       });
     }
 
@@ -588,13 +613,14 @@ app.get('/api/customers/:id/transactions', async (req, res) => {
         sortAt: p.createdAt || `${p.date}T12:00:00`,
         type: 'Payment',
         details: [
+          paymentSettlementSummary(p),
           p.billNumber ? `Bill #${p.billNumber}` : null,
           p.note,
           p.recordedBy ? `by ${p.recordedBy}` : '',
         ]
           .filter(Boolean)
           .join(' · ') || '—',
-        amount: Number(p.amount) || 0,
+        amount: paymentCreditToCustomer(p),
         direction: 'credit',
       });
     }
@@ -676,10 +702,30 @@ app.post('/api/payments', async (req, res) => {
     if (!customerId) {
       return res.status(400).json({ error: 'customerId is required' });
     }
-    const amount = toNonNegMoney(body.amount);
-    if (amount <= 0) {
-      return res.status(400).json({ error: 'amount must be greater than 0' });
+
+    let cashAmount = toNonNegMoney(body.cashAmount ?? 0);
+    let chequeAmount = toNonNegMoney(body.chequeAmount ?? 0);
+    if (cashAmount === 0 && chequeAmount === 0 && body.amount != null) {
+      cashAmount = toNonNegMoney(body.amount);
     }
+    const amount = Math.round((cashAmount + chequeAmount) * 100) / 100;
+    if (amount <= 0) {
+      return res.status(400).json({ error: 'Enter a cash amount and/or cheque amount so the total is greater than 0.' });
+    }
+
+    let chequeDate = String(body.chequeDate ?? '').trim();
+    const chequeNumber = String(body.chequeNumber ?? '').trim();
+    if (chequeAmount > 0) {
+      if (!chequeDate || !/^\d{4}-\d{2}-\d{2}$/.test(chequeDate)) {
+        return res.status(400).json({ error: 'Cheque date is required when cheque amount is greater than 0.' });
+      }
+      if (!chequeNumber) {
+        return res.status(400).json({ error: 'Cheque number is required when cheque amount is greater than 0.' });
+      }
+    } else {
+      chequeDate = '';
+    }
+
     let date = String(body.date ?? '').trim();
     if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       date = paymentDateDefaultYmd();
@@ -711,6 +757,17 @@ app.post('/api/payments', async (req, res) => {
       customerName: cust.name,
       billNumber,
       amount,
+      cashAmount,
+      chequeAmount,
+      chequeDate: chequeAmount > 0 ? chequeDate : '',
+      chequeNumber: chequeAmount > 0 ? chequeNumber : '',
+      ...(chequeAmount > 0
+        ? {
+            chequeDeposited: false,
+            chequeDepositedAt: '',
+            chequeDepositedBy: '',
+          }
+        : {}),
       note,
       recordedBy,
       createdAt: new Date().toISOString(),
@@ -725,6 +782,67 @@ app.post('/api/payments', async (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'Failed to save payment' });
+  }
+});
+
+/** Cheques (by cheque date) not yet marked as deposited to the bank — default `date` is today (server local). */
+app.get('/api/cheque-deposit-queue', async (req, res) => {
+  try {
+    const on = String(req.query.date ?? '').trim() || paymentDateDefaultYmd();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(on)) {
+      return res.status(400).json({ error: 'Invalid date' });
+    }
+    const payments = await readPayments();
+    const items = payments.filter((p) => {
+      if (toNonNegMoney(p.chequeAmount) <= 0) return false;
+      if (p.chequeDeposited) return false;
+      const d = String(p.chequeDate || '').slice(0, 10);
+      return d === on;
+    });
+    const sorted = [...items].sort((a, b) => {
+      const t = new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+      if (t !== 0) return t;
+      return String(b.id).localeCompare(String(a.id));
+    });
+    res.json({ asOfDate: on, items: sorted });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Failed to load cheque deposit queue' });
+  }
+});
+
+app.patch('/api/payments/:id/cheque-deposited', async (req, res) => {
+  try {
+    const id = String(req.params.id ?? '').trim();
+    if (!id) {
+      return res.status(400).json({ error: 'Payment id is required' });
+    }
+    const body = req.body || {};
+    const recordedBy = String(body.recordedBy ?? '').trim();
+    if (!recordedBy) {
+      return res.status(400).json({ error: 'recordedBy (username) is required' });
+    }
+    const payments = await readPayments();
+    const idx = payments.findIndex((p) => p.id === id);
+    if (idx < 0) {
+      return res.status(404).json({ error: 'Payment not found' });
+    }
+    const p = { ...payments[idx] };
+    if (toNonNegMoney(p.chequeAmount) <= 0) {
+      return res.status(400).json({ error: 'This payment has no cheque' });
+    }
+    if (p.chequeDeposited) {
+      return res.status(400).json({ error: 'This cheque is already marked as deposited' });
+    }
+    p.chequeDeposited = true;
+    p.chequeDepositedAt = new Date().toISOString();
+    p.chequeDepositedBy = recordedBy;
+    payments[idx] = p;
+    await writePayments(payments);
+    res.json(p);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Failed to update payment' });
   }
 });
 
@@ -872,7 +990,7 @@ app.get('/api/activity', async (req, res) => {
         subtitle: [r.billNumber ? `#${r.billNumber}` : null, r.date, r.recordedBy, r.note]
           .filter(Boolean)
           .join(' · '),
-        amount: Number(r.amount) || 0,
+        amount: paymentCreditToCustomer(r),
       });
     }
 
@@ -935,7 +1053,7 @@ app.post('/api/bills', async (req, res) => {
     const totalAmount =
       Math.round((tokyoLine + samudraLine + atlasLine + nipponLine) * 100) / 100;
 
-    const stockId = String(body.stockId ?? '').trim();
+    const stockId = '';
 
     const row = {
       id: `bill-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
@@ -961,7 +1079,8 @@ app.post('/api/bills', async (req, res) => {
 
     const stocks = await readStocks();
     const bills = await readBills();
-    const check = validateBillAgainstLoadedStock(stocks, bills, stockId, {
+    const promotions = await readPromotions();
+    const check = validateBillAgainstPooledStock(stocks, bills, promotions, {
       tokyoBags,
       samudraBags,
       atlasBags,
@@ -1043,6 +1162,7 @@ app.post('/api/stocks', async (req, res) => {
       return res.status(400).json({ error: 'date, stockId, and vehicleNumber are required' });
     }
 
+    const trimStr = (v) => String(v ?? '').trim();
     const row = {
       id: `load-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
       date,
@@ -1050,18 +1170,45 @@ app.post('/api/stocks', async (req, res) => {
       vehicleNumber,
       tokyoBags: toNonNegNumber(body.tokyoBags),
       tokyoCost: toNonNegNumber(body.tokyoCost),
+      tokyoInvoice: trimStr(body.tokyoInvoice),
+      tokyoCheque: trimStr(body.tokyoCheque),
       samudraBags: toNonNegNumber(body.samudraBags),
       samudraCost: toNonNegNumber(body.samudraCost),
+      samudraInvoice: trimStr(body.samudraInvoice),
+      samudraCheque: trimStr(body.samudraCheque),
       atlasBags: toNonNegNumber(body.atlasBags),
       atlasCost: toNonNegNumber(body.atlasCost),
+      atlasInvoice: trimStr(body.atlasInvoice),
+      atlasCheque: trimStr(body.atlasCheque),
       nipponBags: toNonNegNumber(body.nipponBags),
       nipponCost: toNonNegNumber(body.nipponCost),
+      nipponInvoice: trimStr(body.nipponInvoice),
+      nipponCheque: trimStr(body.nipponCheque),
       addedBy,
       createdAt: new Date().toISOString(),
     };
 
     row.totalAmount =
       row.tokyoCost + row.samudraCost + row.atlasCost + row.nipponCost;
+
+    const stockBrandsRequireRefs = [
+      ['tokyo', 'Tokyo'],
+      ['samudra', 'Samudra'],
+      ['atlas', 'Atlas'],
+      ['nippon', 'Nippon'],
+    ];
+    const missingRefs = [];
+    for (const [key, label] of stockBrandsRequireRefs) {
+      if (toNonNegNumber(row[`${key}Bags`]) >= 1) {
+        if (!row[`${key}Invoice`]) missingRefs.push(`${label} invoice number`);
+        if (!row[`${key}Cheque`]) missingRefs.push(`${label} cheque number`);
+      }
+    }
+    if (missingRefs.length > 0) {
+      return res.status(400).json({
+        error: `When bags are 1 or more for a brand, invoice and cheque are required. Missing: ${missingRefs.join(', ')}.`,
+      });
+    }
 
     const stocks = await readStocks();
     stocks.push(row);

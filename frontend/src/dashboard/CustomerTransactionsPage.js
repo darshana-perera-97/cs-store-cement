@@ -10,6 +10,7 @@ import {
   stickyThead,
   useTablePagination,
 } from './tableToolbar';
+import RowDetailModal, { detailRowAttrs } from './RowDetailModal';
 
 const apiBase = getApiBase();
 
@@ -29,6 +30,7 @@ export default function CustomerTransactionsPage() {
   const [error, setError] = useState(null);
   const [search, setSearch] = useState('');
   const [kindFilter, setKindFilter] = useState('all');
+  const [detailTx, setDetailTx] = useState(null);
 
   const load = useCallback(async () => {
     if (!customerId) return;
@@ -186,7 +188,11 @@ export default function CustomerTransactionsPage() {
                   </tr>
                 ) : (
                   pagedTransactions.map((tx) => (
-                    <tr key={`${tx.kind}-${tx.id}`} className="hover:bg-slate-50/80">
+                    <tr
+                      key={`${tx.kind}-${tx.id}`}
+                      {...detailRowAttrs(() => setDetailTx(tx), 'hover:bg-slate-50/80')}
+                      aria-label={`${tx.type || 'Transaction'} ${tx.date || ''}`}
+                    >
                       <td className="whitespace-nowrap px-4 py-3 tabular-nums">{tx.date}</td>
                       <td className="px-4 py-3 font-medium text-slate-900">{tx.type}</td>
                       <td className="max-w-md px-4 py-3 text-slate-600">
@@ -218,6 +224,14 @@ export default function CustomerTransactionsPage() {
         ) : null}
         </div>
       </div>
+
+      <RowDetailModal
+        open={!!detailTx}
+        row={detailTx}
+        title="Transaction details"
+        subtitle={detailTx ? [detailTx.date, detailTx.type].filter(Boolean).join(' · ') || null : null}
+        onClose={() => setDetailTx(null)}
+      />
     </div>
   );
 }

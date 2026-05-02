@@ -11,7 +11,9 @@ import {
   scrollTableWrap,
   stickyThead,
   useTablePagination,
+  modalPanelClass,
 } from './tableToolbar';
+import RowDetailModal, { detailRowAttrs } from './RowDetailModal';
 
 const apiBase = getApiBase();
 
@@ -267,31 +269,34 @@ export default function PromotionsPage() {
                 <th className="whitespace-nowrap px-4 py-3 font-mono">Bill #</th>
                 <th className="whitespace-nowrap px-4 py-3 text-right">Amount</th>
                 <th className="whitespace-nowrap px-4 py-3 text-right">Free bags</th>
-                <th className="whitespace-nowrap px-4 py-3 text-center"> </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-800">
               {loading ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-10 text-center text-slate-500">
+                  <td colSpan={5} className="px-4 py-10 text-center text-slate-500">
                     Loading…
                   </td>
                 </tr>
               ) : rows.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-10 text-center text-slate-500">
+                  <td colSpan={5} className="px-4 py-10 text-center text-slate-500">
                     No promotions yet. Use &quot;Add promotion&quot; to record free bags for a customer.
                   </td>
                 </tr>
               ) : filteredRows.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-10 text-center text-slate-500">
+                  <td colSpan={5} className="px-4 py-10 text-center text-slate-500">
                     No rows match your search or filters.
                   </td>
                 </tr>
               ) : (
                 pagedRows.map((r) => (
-                  <tr key={r.id} className="hover:bg-slate-50/80">
+                  <tr
+                    key={r.id}
+                    {...detailRowAttrs(() => setDetailRow(r), 'hover:bg-slate-50/80')}
+                    aria-label={`Promotion ${r.customerName || ''}`}
+                  >
                     <td className="whitespace-nowrap px-4 py-3 tabular-nums">{r.date}</td>
                     <td className="px-4 py-3 font-medium text-slate-900">{r.customerName || '—'}</td>
                     <td className="whitespace-nowrap px-4 py-3 font-mono text-sm">
@@ -302,15 +307,6 @@ export default function PromotionsPage() {
                     </td>
                     <td className="whitespace-nowrap px-4 py-3 text-right font-semibold tabular-nums text-indigo-800">
                       {totalFreeBags(r)}
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <button
-                        type="button"
-                        onClick={() => setDetailRow(r)}
-                        className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-800 transition hover:bg-indigo-100"
-                      >
-                        View more
-                      </button>
                     </td>
                   </tr>
                 ))
@@ -343,7 +339,7 @@ export default function PromotionsPage() {
             aria-label="Close"
             onClick={closeModal}
           />
-          <div className="relative z-10 w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl ring-1 ring-slate-200">
+          <div className={modalPanelClass}>
             <h2 id="promo-modal-title" className="text-lg font-bold text-slate-900">
               Add promotion (free bags)
             </h2>
@@ -443,92 +439,17 @@ export default function PromotionsPage() {
         </div>
       ) : null}
 
-      {detailRow ? (
-        <div
-          className="fixed inset-0 z-[100] flex items-end justify-center p-4 sm:items-center"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="promo-detail-title"
-        >
-          <button
-            type="button"
-            className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
-            aria-label="Close"
-            onClick={() => setDetailRow(null)}
-          />
-          <div className="relative z-10 w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl ring-1 ring-slate-200">
-            <h2 id="promo-detail-title" className="text-lg font-bold text-slate-900">
-              Promotion detail
-            </h2>
-            <div className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-950 ring-1 ring-amber-100">
-              Counts as bags out in live stock / daily ledger. Does not change customer balance or cash.
-            </div>
-            <dl className="mt-4 space-y-2 text-sm">
-              <div className="flex justify-between gap-4">
-                <dt className="text-slate-500">Issue date</dt>
-                <dd className="font-medium tabular-nums text-slate-900">{detailRow.date}</dd>
-              </div>
-              <div className="flex justify-between gap-4">
-                <dt className="text-slate-500">Customer</dt>
-                <dd className="text-right font-medium text-slate-900">{detailRow.customerName}</dd>
-              </div>
-              <div className="flex justify-between gap-4">
-                <dt className="text-slate-500">Bill #</dt>
-                <dd className="font-mono font-medium text-slate-900">
-                  {detailRow.billNumber ? `#${detailRow.billNumber}` : '—'}
-                </dd>
-              </div>
-              <div className="flex justify-between gap-4">
-                <dt className="text-slate-500">Cash amount</dt>
-                <dd className="tabular-nums text-slate-500">{money(0)}</dd>
-              </div>
-              <div className="border-t border-slate-100 pt-2">
-                <dt className="text-slate-500">Reason</dt>
-                <dd className="mt-1 text-slate-800">{detailRow.reason || '—'}</dd>
-              </div>
-            </dl>
-            <div className="mt-4 overflow-hidden rounded-xl ring-1 ring-slate-100">
-              <table className="w-full border-separate border-spacing-0 text-sm">
-                <thead className={stickyThead}>
-                  <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    <th className="px-3 py-2">Brand</th>
-                    <th className="px-3 py-2 text-right">Free bags</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {BRANDS.map((b) => (
-                    <tr key={b.key}>
-                      <td className={`px-3 py-2.5 font-medium ${b.ledger.cellLead}`}>{b.label}</td>
-                      <td className={`px-3 py-2.5 text-right tabular-nums font-semibold ${b.ledger.cell}`}>
-                        {Number(detailRow[`${b.key}Bags`]) || 0}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <p className="mt-3 text-xs text-slate-500">
-              Total free bags:{' '}
-              <span className="font-semibold text-slate-800">{totalFreeBags(detailRow)}</span>
-            </p>
-            <p className="mt-2 text-sm text-slate-600">
-              <span className="font-medium text-slate-700">Recorded by:</span> {detailRow.enteredBy || '—'}
-            </p>
-            {detailRow.createdAt ? (
-              <p className="mt-1 text-xs text-slate-400">
-                Saved {String(detailRow.createdAt).slice(0, 19).replace('T', ' ')}
-              </p>
-            ) : null}
-            <button
-              type="button"
-              onClick={() => setDetailRow(null)}
-              className="mt-5 w-full rounded-xl border border-slate-200 bg-white py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-            >
-              Close
-            </button>
-          </div>
-        </div>
-      ) : null}
+      <RowDetailModal
+        open={!!detailRow}
+        row={detailRow}
+        title="Promotion details"
+        subtitle={
+          detailRow
+            ? [detailRow.date, detailRow.customerName].filter(Boolean).join(' · ') || null
+            : null
+        }
+        onClose={() => setDetailRow(null)}
+      />
     </div>
   );
 }

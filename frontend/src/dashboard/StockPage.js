@@ -10,6 +10,7 @@ import {
   stickyTheadTransparent,
   useTablePagination,
 } from './tableToolbar';
+import RowDetailModal, { detailRowAttrs } from './RowDetailModal';
 
 const apiBase = getApiBase();
 
@@ -23,6 +24,7 @@ export default function StockPage() {
   const [dailyError, setDailyError] = useState(null);
   const [ledgerSearch, setLedgerSearch] = useState('');
   const [ledgerFilter, setLedgerFilter] = useState('all');
+  const [detailLedgerDay, setDetailLedgerDay] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -259,7 +261,11 @@ export default function StockPage() {
               </tr>
             ) : (
               pagedDailyRows.map((day) => (
-                <tr key={day.date}>
+                <tr
+                  key={day.date}
+                  {...detailRowAttrs(() => setDetailLedgerDay(day))}
+                  aria-label={`Daily ledger ${day.date}`}
+                >
                   <td className="whitespace-nowrap border-b border-slate-100 bg-slate-50/70 px-3 py-3 font-medium tabular-nums text-slate-800">
                     {day.date}
                   </td>
@@ -294,6 +300,14 @@ export default function StockPage() {
         />
       ) : null}
       </div>
+
+      <RowDetailModal
+        open={!!detailLedgerDay}
+        row={detailLedgerDay}
+        title="Daily ledger row"
+        subtitle={detailLedgerDay?.date || null}
+        onClose={() => setDetailLedgerDay(null)}
+      />
     </div>
   );
 }

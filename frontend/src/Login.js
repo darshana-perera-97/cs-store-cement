@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getApiBase } from './apiBase';
+import { DEFAULT_DEV_API_URL, getApiBase } from './apiBase';
 import { isAuthed, setAuth } from './auth';
 
 const apiBase = getApiBase();
@@ -40,8 +40,8 @@ function Login() {
           data.error ||
           data.message ||
           (res.status === 404
-            ? `Login API not found at ${url}. Start the backend on port 1248, or set REACT_APP_API_URL in the frontend.`
-            : `Request failed (${res.status}). Check that the backend is running on port 1248.`);
+            ? `Login API not found at ${url}. Start the backend at ${DEFAULT_DEV_API_URL}, or set REACT_APP_API_URL in the frontend.`
+            : `Request failed (${res.status}). Check that the backend is running (${DEFAULT_DEV_API_URL}).`);
         setError(msg);
         return;
       }
@@ -62,7 +62,7 @@ function Login() {
       navigate('/dashboard/analytics', { replace: true });
     } catch {
       setError(
-        'Could not reach the server. Is the backend running on port 1248?'
+        `Could not reach the server. Is the backend running at ${DEFAULT_DEV_API_URL}?`
       );
     } finally {
       setLoading(false);
@@ -72,7 +72,7 @@ function Login() {
   return (
     <div className="flex flex-1 flex-col items-center justify-center bg-slate-50 px-5 py-12">
       <main className="w-full max-w-[420px]">
-        <div className="rounded-3xl bg-white px-8 py-10 shadow-xl shadow-slate-200/60 ring-1 ring-slate-100 sm:px-10">
+        <div className="max-h-[min(90vh,calc(100dvh-3rem))] overflow-y-auto overscroll-contain rounded-3xl bg-white px-8 py-10 shadow-xl shadow-slate-200/60 ring-1 ring-slate-100 sm:px-10">
           <div className="mb-8 flex items-center gap-3">
             <div
               className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-600 to-violet-600 text-sm font-bold tracking-tight text-white shadow-lg shadow-indigo-500/30"

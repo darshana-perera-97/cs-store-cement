@@ -10,7 +10,9 @@ import {
   scrollTableWrap,
   stickyThead,
   useTablePagination,
+  modalPanelClass,
 } from './tableToolbar';
+import RowDetailModal, { detailRowAttrs } from './RowDetailModal';
 
 const apiBase = getApiBase();
 
@@ -48,6 +50,7 @@ export default function CustomersPage() {
   const [saveError, setSaveError] = useState(null);
   const [search, setSearch] = useState('');
   const [dueFilter, setDueFilter] = useState('all');
+  const [detailCustomer, setDetailCustomer] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -233,7 +236,11 @@ export default function CustomersPage() {
                 return (
                   <tr
                     key={r.id}
-                    className={overdue ? 'bg-rose-50/50 hover:bg-rose-50/80' : 'hover:bg-slate-50/80'}
+                    {...detailRowAttrs(
+                      () => setDetailCustomer(r),
+                      overdue ? 'bg-rose-50/50 hover:bg-rose-50/80' : 'hover:bg-slate-50/80',
+                    )}
+                    aria-label={`Customer ${r.name || ''}`}
                   >
                     <td className="px-4 py-3">
                       <p className="font-semibold text-slate-900">{r.name}</p>
@@ -262,7 +269,10 @@ export default function CustomersPage() {
                     <td className="whitespace-nowrap px-4 py-3 text-center">
                       <button
                         type="button"
-                        onClick={() => navigate(`/dashboard/customers/${encodeURIComponent(r.id)}`)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigate(`/dashboard/customers/${encodeURIComponent(r.id)}`);
+                        }}
                         className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-800"
                       >
                         Transactions
@@ -300,7 +310,7 @@ export default function CustomersPage() {
             aria-label="Close"
             onClick={closeModal}
           />
-          <div className="relative z-10 w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl ring-1 ring-slate-200">
+          <div className={modalPanelClass}>
             <h2 id="customers-modal-title" className="text-lg font-bold text-slate-900">
               Add customer
             </h2>
@@ -382,6 +392,14 @@ export default function CustomersPage() {
           </div>
         </div>
       ) : null}
+
+      <RowDetailModal
+        open={!!detailCustomer}
+        row={detailCustomer}
+        title="Customer details"
+        subtitle={detailCustomer?.name || null}
+        onClose={() => setDetailCustomer(null)}
+      />
     </div>
   );
 }

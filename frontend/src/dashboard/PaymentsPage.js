@@ -11,7 +11,9 @@ import {
   scrollTableWrap,
   stickyThead,
   useTablePagination,
+  modalPanelClass,
 } from './tableToolbar';
+import RowDetailModal, { detailRowAttrs } from './RowDetailModal';
 
 const apiBase = getApiBase();
 
@@ -34,7 +36,10 @@ function todayYmdLocal() {
 const emptyForm = () => ({
   customerId: '',
   billNumber: '',
-  amount: '',
+  cashAmount: '',
+  chequeAmount: '',
+  chequeDate: todayYmdLocal(),
+  chequeNumber: '',
   date: todayYmdLocal(),
   note: '',
 });
@@ -52,6 +57,7 @@ export default function PaymentsPage() {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [customerFilter, setCustomerFilter] = useState('');
+  const [detailPayment, setDetailPayment] = useState(null);
 
   const loadCustomers = useCallback(async () => {
     try {
@@ -100,6 +106,8 @@ export default function PaymentsPage() {
           r.note,
           r.recordedBy,
           String(r.amount),
+          r.chequeDate,
+          r.chequeNumber,
         ])
       ) {
         return false;
@@ -155,6 +163,22 @@ export default function PaymentsPage() {
       setSaveError('Enter a bill number (1–3 digits, e.g. 001).');
       return;
     }
+    const cash = Number(form.cashAmount) || 0;
+    const cheque = Number(form.chequeAmount) || 0;
+    if (cash <= 0 && cheque <= 0) {
+      setSaveError('Enter a cash amount and/or cheque amount so the total is greater than 0.');
+      return;
+    }
+    if (cheque > 0) {
+      if (!form.chequeDate || !/^\d{4}-\d{2}-\d{2}$/.test(form.chequeDate)) {
+        setSaveError('Enter a valid cheque date when cheque amount is greater than 0.');
+        return;
+      }
+      if (!String(form.chequeNumber).trim()) {
+        setSaveError('Enter a cheque number when cheque amount is greater than 0.');
+        return;
+      }
+    }
     const padBill = String(parseInt(form.billNumber, 10)).padStart(3, '0');
     if (rows.some((r) => String(r.billNumber || '') === padBill)) {
       setSaveError('This bill number is already used.');
@@ -170,7 +194,10 @@ export default function PaymentsPage() {
           recordedBy: username,
           customerId: form.customerId,
           billNumber: form.billNumber,
-          amount: form.amount,
+          cashAmount: cash,
+          chequeAmount: cheque,
+          chequeDate: form.chequeDate,
+          chequeNumber: String(form.chequeNumber).trim(),
           date: form.date,
           note: form.note.trim(),
         }),
@@ -299,7 +326,11 @@ export default function PaymentsPage() {
               </tr>
             ) : (
               pagedRows.map((r) => (
-                <tr key={r.id} className="hover:bg-slate-50/80">
+                <tr
+                  key={r.id}
+                  {...detailRowAttrs(() => setDetailPayment(r), 'hover:bg-slate-50/80')}
+                  aria-label={`Payment ${r.billNumber || r.id || ''}`}
+                >
                   <td className="whitespace-nowrap px-4 py-3 tabular-nums">{r.date}</td>
                   <td className="whitespace-nowrap px-4 py-3 font-mono text-sm font-semibold tabular-nums text-slate-800">
                     {r.billNumber || '—'}
@@ -318,6 +349,7 @@ export default function PaymentsPage() {
                     <Link
                       to={`/dashboard/customers/${encodeURIComponent(r.customerId)}`}
                       className="text-xs font-semibold text-indigo-600 hover:text-indigo-800"
+                      onClick={(e) => e.stopPropagation()}
                     >
                       Customer
                     </Link>
@@ -353,7 +385,7 @@ export default function PaymentsPage() {
             aria-label="Close"
             onClick={closeModal}
           />
-          <div className="relative z-10 w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl ring-1 ring-slate-200">
+          <div className={modalPanelClass}>
             <h2 id="payments-modal-title" className="text-lg font-bold text-slate-900">
               Record payment
             </h2>
@@ -400,19 +432,19 @@ export default function PaymentsPage() {
               </label>
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="block text-sm font-medium text-slate-600">
-                  Amount (LKR)
+                  Cash (LKR)
                   <input
                     type="number"
-                    min={0.01}
+                    min={0}
                     step={0.01}
-                    required
-                    value={form.amount}
-                    onChange={(e) => handleChange('amount', e.target.value)}
+                    value={form.cashAmount}
+                    onChange={(e) => handleChange('cashAmount', e.target.value)}
                     className="mt-1 w-full rounded-xl border-0 bg-slate-100 px-3 py-2.5 text-sm tabular-nums ring-1 ring-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/35"
+                    placeholder="0"
                   />
                 </label>
                 <label className="block text-sm font-medium text-slate-600">
-                  Date
+                  Payment date
                   <input
                     type="date"
                     required
@@ -422,6 +454,49 @@ export default function PaymentsPage() {
                   />
                 </label>
               </div>
+              <div className="rounded-xl bg-slate-50/90 p-4 ring-1 ring-slate-100">
+                <p className="text-sm font-semibold text-slate-800">Cheque</p>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <label className="block text-sm font-medium text-slate-600">
+                    Amount (LKR)
+                    <input
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      value={form.chequeAmount}
+                      onChange={(e) => handleChange('chequeAmount', e.target.value)}
+                      className="mt-1 w-full rounded-xl border-0 bg-white px-3 py-2.5 text-sm tabular-nums ring-1 ring-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/35"
+                      placeholder="0"
+                    />
+                  </label>
+                  <label className="block text-sm font-medium text-slate-600">
+                    Cheque date
+                    <input
+                      type="date"
+                      value={form.chequeDate}
+                      onChange={(e) => handleChange('chequeDate', e.target.value)}
+                      className="mt-1 w-full rounded-xl border-0 bg-white px-3 py-2.5 text-sm ring-1 ring-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/35"
+                    />
+                  </label>
+                </div>
+                <label className="mt-3 block text-sm font-medium text-slate-600">
+                  Cheque number
+                  <input
+                    type="text"
+                    autoComplete="off"
+                    value={form.chequeNumber}
+                    onChange={(e) => handleChange('chequeNumber', e.target.value)}
+                    className="mt-1 w-full rounded-xl border-0 bg-white px-3 py-2.5 text-sm ring-1 ring-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/35"
+                    placeholder="e.g. 123456"
+                  />
+                </label>
+              </div>
+              <p className="text-sm text-slate-600">
+                Total payment:{' '}
+                <span className="font-semibold tabular-nums text-slate-900">
+                  {money((Number(form.cashAmount) || 0) + (Number(form.chequeAmount) || 0))}
+                </span>
+              </p>
               <label className="block text-sm font-medium text-slate-600">
                 Note (optional)
                 <input
@@ -429,7 +504,7 @@ export default function PaymentsPage() {
                   value={form.note}
                   onChange={(e) => handleChange('note', e.target.value)}
                   className="mt-1 w-full rounded-xl border-0 bg-slate-100 px-3 py-2.5 text-sm ring-1 ring-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/35"
-                  placeholder="e.g. Cash, transfer ref…"
+                  placeholder="e.g. Reference, remarks…"
                 />
               </label>
               <div className="flex flex-wrap justify-end gap-2 pt-2">
@@ -452,6 +527,18 @@ export default function PaymentsPage() {
           </div>
         </div>
       ) : null}
+
+      <RowDetailModal
+        open={!!detailPayment}
+        row={detailPayment}
+        title="Payment details"
+        subtitle={
+          detailPayment
+            ? [detailPayment.date, detailPayment.customerName].filter(Boolean).join(' · ')
+            : null
+        }
+        onClose={() => setDetailPayment(null)}
+      />
     </div>
   );
 }

@@ -15,6 +15,7 @@ import {
   YAxis,
 } from 'recharts';
 import { getApiBase } from '../apiBase';
+import { getUsername } from '../auth';
 import { BRANDS } from './brandTheme';
 import {
   TableFiltersBar,
@@ -27,6 +28,7 @@ import {
   useTablePagination,
 } from './tableToolbar';
 import { downloadOverdueBillsPdf } from './overdueBillsPdf';
+import RowDetailModal, { detailRowAttrs } from './RowDetailModal';
 
 /** Bar fills aligned with `BRANDS` — same hues as light theme, higher chroma for readability */
 const BRAND_BAR_COLORS = {
@@ -95,6 +97,7 @@ function Card({ title, subtitle, children, className = '', headerExtra = null })
 }
 
 function OverdueBillsTable({ rows, totalLoadedCount, defaultPageSize = 10, resetKey = '' }) {
+  const [detailRow, setDetailRow] = useState(null);
   const pagination = useTablePagination(rows.length, [resetKey, rows.length], defaultPageSize);
   const pagedRows = useMemo(
     () => rows.slice(pagination.offset, pagination.offset + pagination.pageSize),
@@ -124,7 +127,11 @@ function OverdueBillsTable({ rows, totalLoadedCount, defaultPageSize = 10, reset
               </tr>
             ) : (
               pagedRows.map((row) => (
-              <tr key={row.id} className="text-slate-700">
+              <tr
+                key={row.id}
+                {...detailRowAttrs(() => setDetailRow(row), 'text-slate-700')}
+                aria-label={`Overdue row ${row.customerName || ''}`}
+              >
                 <td className="max-w-[140px] py-3.5 pl-1 pr-3 font-semibold text-slate-900">
                   <span className="line-clamp-2">{row.customerName}</span>
                 </td>
@@ -158,6 +165,13 @@ function OverdueBillsTable({ rows, totalLoadedCount, defaultPageSize = 10, reset
           pageSizeOptions={pageSizeOptionsWith(defaultPageSize)}
         />
       ) : null}
+      <RowDetailModal
+        open={!!detailRow}
+        row={detailRow}
+        title="Overdue bill details"
+        subtitle={detailRow?.customerName || null}
+        onClose={() => setDetailRow(null)}
+      />
     </div>
   );
 }
@@ -170,8 +184,66 @@ export default function AnalyticsPage() {
   const [recentTransfers, setRecentTransfers] = useState([]);
   const [overdueBills, setOverdueBills] = useState([]);
   const [cashDashLoading, setCashDashLoading] = useState(true);
+  const [chequeDepositQueue, setChequeDepositQueue] = useState({ asOfDate: '', items: [] });
+  const [chequeDepositErr, setChequeDepositErr] = useState(null);
+  const [markingChequeId, setMarkingChequeId] = useState(null);
   const [overdueSearch, setOverdueSearch] = useState('');
   const [overdueListView, setOverdueListView] = useState('preview');
+
+  const refreshChequeDepositQueue = useCallback(async () => {
+    if (!apiBase) return;
+    try {
+      const res = await fetch(`${apiBase}/api/cheque-deposit-queue`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setChequeDepositQueue({ asOfDate: '', items: [] });
+        setChequeDepositErr(data.error || 'Could not load cheques for deposit');
+        return;
+      }
+      setChequeDepositErr(null);
+      setChequeDepositQueue({
+        asOfDate: String(data.asOfDate ?? ''),
+        items: Array.isArray(data.items) ? data.items : [],
+      });
+    } catch {
+      setChequeDepositQueue({ asOfDate: '', items: [] });
+      setChequeDepositErr('Could not reach server');
+    }
+  }, [apiBase]);
+
+  const handleMarkChequeDeposited = useCallback(
+    async (paymentId) => {
+      const username = getUsername();
+      if (!username) {
+        setChequeDepositErr('Sign in with a username to record deposits.');
+        return;
+      }
+      if (!apiBase) return;
+      setChequeDepositErr(null);
+      setMarkingChequeId(paymentId);
+      try {
+        const res = await fetch(
+          `${apiBase}/api/payments/${encodeURIComponent(paymentId)}/cheque-deposited`,
+          {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ recordedBy: username }),
+          },
+        );
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setChequeDepositErr(data.error || 'Update failed');
+          return;
+        }
+        await refreshChequeDepositQueue();
+      } catch {
+        setChequeDepositErr('Could not reach server');
+      } finally {
+        setMarkingChequeId(null);
+      }
+    },
+    [apiBase, refreshChequeDepositQueue],
+  );
 
   useEffect(() => {
     if (!apiBase) {
@@ -181,12 +253,13 @@ export default function AnalyticsPage() {
     let cancelled = false;
     (async () => {
       try {
-        const [sumRes, flowRes, bagsRes, xferRes, overdueRes] = await Promise.all([
+        const [sumRes, flowRes, bagsRes, xferRes, overdueRes, chequeRes] = await Promise.all([
           fetch(`${apiBase}/api/cash-summary`),
           fetch(`${apiBase}/api/cash-flow?days=7`),
           fetch(`${apiBase}/api/bag-sales-by-day?days=7`),
           fetch(`${apiBase}/api/recent-transfers?limit=5`),
           fetch(`${apiBase}/api/overdue-bills`),
+          fetch(`${apiBase}/api/cheque-deposit-queue`),
         ]);
         if (!cancelled) {
           if (sumRes.ok) setCashSummary(await sumRes.json());
@@ -215,6 +288,18 @@ export default function AnalyticsPage() {
           } else {
             setOverdueBills([]);
           }
+          if (chequeRes.ok) {
+            const cd = await chequeRes.json();
+            setChequeDepositErr(null);
+            setChequeDepositQueue({
+              asOfDate: String(cd.asOfDate ?? ''),
+              items: Array.isArray(cd.items) ? cd.items : [],
+            });
+          } else {
+            setChequeDepositQueue({ asOfDate: '', items: [] });
+            const errJson = await chequeRes.json().catch(() => ({}));
+            setChequeDepositErr(errJson.error || 'Could not load cheque deposit list');
+          }
         }
       } catch {
         if (!cancelled) {
@@ -223,6 +308,8 @@ export default function AnalyticsPage() {
           setBagSalesByDay([]);
           setRecentTransfers([]);
           setOverdueBills([]);
+          setChequeDepositQueue({ asOfDate: '', items: [] });
+          setChequeDepositErr('Could not load dashboard data');
         }
       } finally {
         if (!cancelled) setCashDashLoading(false);
@@ -590,6 +677,71 @@ export default function AnalyticsPage() {
           )}
         </Card>
       </div>
+
+      <Card
+        title="Cheques to deposit today"
+        subtitle={
+          chequeDepositQueue.asOfDate
+            ? `Cheques dated ${chequeDepositQueue.asOfDate} (server clock) that are not yet marked as deposited at the bank.`
+            : 'Uses the server’s calendar date for “today”.'
+        }
+      >
+        {chequeDepositErr ? (
+          <p className="rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-900 ring-1 ring-amber-100" role="alert">
+            {chequeDepositErr}
+          </p>
+        ) : null}
+        {cashDashLoading ? (
+          <div className="py-8 text-center text-sm text-slate-500">Loading…</div>
+        ) : chequeDepositQueue.items.length === 0 ? (
+          <p className="py-6 text-center text-sm text-slate-500">
+            Nothing due for the bank run — either no cheques with today&apos;s date, or they are already marked as
+            deposited.
+          </p>
+        ) : (
+          <div className={scrollTableWrap}>
+            <table className="w-full min-w-[640px] border-separate border-spacing-0 text-left text-sm">
+              <thead className={stickyThead}>
+                <tr className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                  <th className="px-3 py-3">Customer</th>
+                  <th className="whitespace-nowrap px-3 py-3 font-mono">Bill #</th>
+                  <th className="whitespace-nowrap px-3 py-3 font-mono">Cheque #</th>
+                  <th className="whitespace-nowrap px-3 py-3">Cheque date</th>
+                  <th className="whitespace-nowrap px-3 py-3 text-right">Cheque amount</th>
+                  <th className="whitespace-nowrap px-3 py-3 text-center"> </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-slate-800">
+                {chequeDepositQueue.items.map((row) => (
+                  <tr key={row.id} className="hover:bg-slate-50/80">
+                    <td className="max-w-[180px] px-3 py-3 font-medium text-slate-900">
+                      <span className="line-clamp-2">{row.customerName || '—'}</span>
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-3 font-mono text-xs tabular-nums">{row.billNumber || '—'}</td>
+                    <td className="whitespace-nowrap px-3 py-3 font-mono text-xs">{row.chequeNumber || '—'}</td>
+                    <td className="whitespace-nowrap px-3 py-3 tabular-nums text-slate-600">
+                      {String(row.chequeDate || '').slice(0, 10) || '—'}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-3 text-right font-semibold tabular-nums text-violet-800">
+                      {formatLkrExact(Number(row.chequeAmount) || 0)}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-3 text-center">
+                      <button
+                        type="button"
+                        disabled={!!markingChequeId}
+                        onClick={() => handleMarkChequeDeposited(row.id)}
+                        className="rounded-xl bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {markingChequeId === row.id ? 'Saving…' : 'Mark deposited'}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
 
       <Card
         title="Overdue bills"

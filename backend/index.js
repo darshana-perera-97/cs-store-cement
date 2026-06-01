@@ -204,6 +204,52 @@ function validateBillAgainstPooledStock(loads, existingBills, promotions, billBa
   return { ok: true };
 }
 
+function parseBillBagFields(body) {
+  const tokyoBags = toNonNegNumber(body.tokyoBags);
+  const samudraBags = toNonNegNumber(body.samudraBags);
+  const atlasBags = toNonNegNumber(body.atlasBags);
+  const nipponBags = toNonNegNumber(body.nipponBags);
+  const tokyoUnitPrice = toNonNegMoney(body.tokyoUnitPrice);
+  const samudraUnitPrice = toNonNegMoney(body.samudraUnitPrice);
+  const atlasUnitPrice = toNonNegMoney(body.atlasUnitPrice);
+  const nipponUnitPrice = toNonNegMoney(body.nipponUnitPrice);
+  const tokyoLine = lineTotal(tokyoBags, tokyoUnitPrice);
+  const samudraLine = lineTotal(samudraBags, samudraUnitPrice);
+  const atlasLine = lineTotal(atlasBags, atlasUnitPrice);
+  const nipponLine = lineTotal(nipponBags, nipponUnitPrice);
+  const totalAmount =
+    Math.round((tokyoLine + samudraLine + atlasLine + nipponLine) * 100) / 100;
+  return {
+    tokyoBags,
+    samudraBags,
+    atlasBags,
+    nipponBags,
+    tokyoUnitPrice,
+    samudraUnitPrice,
+    atlasUnitPrice,
+    nipponUnitPrice,
+    tokyoLine,
+    samudraLine,
+    atlasLine,
+    nipponLine,
+    totalAmount,
+  };
+}
+
+async function refreshCustomerBalancesForBillNames(bills, paymentsList, ...nameKeys) {
+  const keys = new Set(nameKeys.map((n) => normalizeCustomerName(n)).filter(Boolean));
+  if (keys.size === 0) return;
+  const customers = await readCustomers();
+  let dirty = false;
+  for (const c of customers) {
+    if (keys.has(normalizeCustomerName(c.name))) {
+      c.remainingAmount = computeRemainingAmount(c, bills, paymentsList);
+      dirty = true;
+    }
+  }
+  if (dirty) await writeCustomers(customers);
+}
+
 function daysFromDueToToday(dueYmd, todayYmd) {
   if (!dueYmd || !todayYmd || dueYmd.length < 10 || todayYmd.length < 10) return 0;
   const t0 = new Date(
@@ -1184,24 +1230,7 @@ app.post('/api/bills', async (req, res) => {
       return res.status(400).json({ error: 'date must be YYYY-MM-DD' });
     }
 
-    const tokyoBags = toNonNegNumber(body.tokyoBags);
-    const samudraBags = toNonNegNumber(body.samudraBags);
-    const atlasBags = toNonNegNumber(body.atlasBags);
-    const nipponBags = toNonNegNumber(body.nipponBags);
-
-    const tokyoUnitPrice = toNonNegMoney(body.tokyoUnitPrice);
-    const samudraUnitPrice = toNonNegMoney(body.samudraUnitPrice);
-    const atlasUnitPrice = toNonNegMoney(body.atlasUnitPrice);
-    const nipponUnitPrice = toNonNegMoney(body.nipponUnitPrice);
-
-    const tokyoLine = lineTotal(tokyoBags, tokyoUnitPrice);
-    const samudraLine = lineTotal(samudraBags, samudraUnitPrice);
-    const atlasLine = lineTotal(atlasBags, atlasUnitPrice);
-    const nipponLine = lineTotal(nipponBags, nipponUnitPrice);
-
-    const totalAmount =
-      Math.round((tokyoLine + samudraLine + atlasLine + nipponLine) * 100) / 100;
-
+    const fields = parseBillBagFields(body);
     const stockId = '';
 
     const row = {
@@ -1209,19 +1238,7 @@ app.post('/api/bills', async (req, res) => {
       date,
       customerName,
       stockId,
-      tokyoBags,
-      samudraBags,
-      atlasBags,
-      nipponBags,
-      tokyoUnitPrice,
-      samudraUnitPrice,
-      atlasUnitPrice,
-      nipponUnitPrice,
-      tokyoLine,
-      samudraLine,
-      atlasLine,
-      nipponLine,
-      totalAmount,
+      ...fields,
       enteredBy,
       createdAt: new Date().toISOString(),
     };
@@ -1230,10 +1247,10 @@ app.post('/api/bills', async (req, res) => {
     const bills = await readBills();
     const promotions = await readPromotions();
     const check = validateBillAgainstPooledStock(stocks, bills, promotions, {
-      tokyoBags,
-      samudraBags,
-      atlasBags,
-      nipponBags,
+      tokyoBags: fields.tokyoBags,
+      samudraBags: fields.samudraBags,
+      atlasBags: fields.atlasBags,
+      nipponBags: fields.nipponBags,
     });
     if (!check.ok) {
       return res.status(400).json({ error: check.error });
@@ -1243,15 +1260,7 @@ app.post('/api/bills', async (req, res) => {
     await writeBills(bills);
 
     const paymentsList = await readPayments();
-    const customers = await readCustomers();
-    const nameKey = normalizeCustomerName(customerName);
-    for (const c of customers) {
-      if (normalizeCustomerName(c.name) === nameKey) {
-        c.remainingAmount = computeRemainingAmount(c, bills, paymentsList);
-        break;
-      }
-    }
-    await writeCustomers(customers);
+    await refreshCustomerBalancesForBillNames(bills, paymentsList, customerName);
 
     try {
       await refreshLiveStockFromSources();
@@ -1263,6 +1272,80 @@ app.post('/api/bills', async (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'Failed to save bill' });
+  }
+});
+
+app.patch('/api/bills/:id', async (req, res) => {
+  try {
+    const id = String(req.params.id ?? '').trim();
+    if (!id) {
+      return res.status(400).json({ error: 'Bill id is required' });
+    }
+    const body = req.body || {};
+    const updatedBy = String(body.updatedBy ?? body.enteredBy ?? '').trim();
+    if (!updatedBy) {
+      return res.status(400).json({ error: 'updatedBy (username) is required' });
+    }
+
+    const date = String(body.date ?? '').trim();
+    const customerName = String(body.customerName ?? '').trim();
+    if (!date || !customerName) {
+      return res.status(400).json({ error: 'date and customerName are required' });
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return res.status(400).json({ error: 'date must be YYYY-MM-DD' });
+    }
+
+    const bills = await readBills();
+    const idx = bills.findIndex((b) => b.id === id);
+    if (idx < 0) {
+      return res.status(404).json({ error: 'Bill not found' });
+    }
+
+    const existing = bills[idx];
+    const fields = parseBillBagFields(body);
+    const stocks = await readStocks();
+    const promotions = await readPromotions();
+    const otherBills = bills.filter((b) => b.id !== id);
+    const check = validateBillAgainstPooledStock(stocks, otherBills, promotions, {
+      tokyoBags: fields.tokyoBags,
+      samudraBags: fields.samudraBags,
+      atlasBags: fields.atlasBags,
+      nipponBags: fields.nipponBags,
+    });
+    if (!check.ok) {
+      return res.status(400).json({ error: check.error });
+    }
+
+    const row = {
+      ...existing,
+      date,
+      customerName,
+      ...fields,
+      updatedBy,
+      updatedAt: new Date().toISOString(),
+    };
+    bills[idx] = row;
+    await writeBills(bills);
+
+    const paymentsList = await readPayments();
+    await refreshCustomerBalancesForBillNames(
+      bills,
+      paymentsList,
+      existing.customerName,
+      customerName,
+    );
+
+    try {
+      await refreshLiveStockFromSources();
+    } catch (err) {
+      console.error('liveStock refresh after bill update', err);
+    }
+
+    res.json(row);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Failed to update bill' });
   }
 });
 

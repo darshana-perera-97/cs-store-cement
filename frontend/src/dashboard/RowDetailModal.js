@@ -12,6 +12,7 @@ export default function RowDetailModal({
   variant = null,
   title = null,
   subtitle = null,
+  actions = null,
 }) {
   if (!open || row == null || typeof row !== 'object') return null;
 
@@ -20,7 +21,7 @@ export default function RowDetailModal({
   const finalSubtitle = subtitle ?? meta.subtitle;
 
   return (
-    <DetailModalShell open={open} onClose={onClose} title={finalTitle} subtitle={finalSubtitle}>
+    <DetailModalShell open={open} onClose={onClose} title={finalTitle} subtitle={finalSubtitle} actions={actions}>
       {variant ? (
         <RowDetailContent variant={variant} row={row} />
       ) : (

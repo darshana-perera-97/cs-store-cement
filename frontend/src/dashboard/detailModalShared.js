@@ -102,6 +102,7 @@ export function DetailModalShell({
   subtitle,
   titleId = 'row-detail-modal-title',
   children,
+  actions = null,
 }) {
   useEffect(() => {
     if (!open) return undefined;
@@ -129,6 +130,7 @@ export function DetailModalShell({
           </h2>
           {subtitle ? <p className="mt-1 text-sm text-slate-500">{subtitle}</p> : null}
           {children}
+          {actions}
           <button
             type="button"
             onClick={onClose}

@@ -37,6 +37,92 @@ function emptyForm() {
   return f;
 }
 
+function formFromBill(bill, customers) {
+  const name = String(bill.customerName ?? '').trim();
+  const match = customers.find((c) => String(c.name ?? '').trim() === name);
+  const f = {
+    date: String(bill.date ?? '').trim() || new Date().toISOString().slice(0, 10),
+    customerId: match?.id ?? '',
+  };
+  for (const b of BRANDS) {
+    const bags = bill[`${b.key}Bags`];
+    const price = bill[`${b.key}UnitPrice`];
+    f[`${b.key}Bags`] = bags != null && bags !== '' ? String(bags) : '';
+    f[`${b.key}UnitPrice`] = price != null && price !== '' ? String(price) : '';
+  }
+  return f;
+}
+
+function BillSaleFormFields({ form, customers, onChange }) {
+  return (
+    <>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="block text-sm font-medium text-slate-600 sm:col-span-2">
+          Date
+          <input
+            type="date"
+            required
+            value={form.date}
+            onChange={(e) => onChange('date', e.target.value)}
+            className="mt-1 w-full rounded-xl border-0 bg-slate-100 px-3 py-2.5 text-sm ring-1 ring-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/35"
+          />
+        </label>
+        <label className="block text-sm font-medium text-slate-600 sm:col-span-2">
+          Customer
+          <select
+            required
+            value={form.customerId}
+            onChange={(e) => onChange('customerId', e.target.value)}
+            className="mt-1 w-full rounded-xl border-0 bg-slate-100 px-3 py-2.5 text-sm ring-1 ring-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/35 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={customers.length === 0}
+          >
+            <option value="">
+              {customers.length === 0 ? 'No customers yet — add some on Customers' : 'Select customer…'}
+            </option>
+            {customers.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-4">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Bags &amp; unit price (LKR)</p>
+        <div className="mt-3 space-y-3">
+          {BRANDS.map((b) => (
+            <div key={b.key} className="grid grid-cols-2 items-end gap-2 sm:grid-cols-3">
+              <span className="col-span-2 text-sm font-medium text-slate-800 sm:col-span-1">{b.label}</span>
+              <label className="text-xs text-slate-500">
+                Bags
+                <input
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={form[`${b.key}Bags`]}
+                  onChange={(e) => onChange(`${b.key}Bags`, e.target.value)}
+                  className="mt-0.5 w-full rounded-lg border-0 bg-white px-2 py-2 text-sm tabular-nums ring-1 ring-slate-200"
+                />
+              </label>
+              <label className="text-xs text-slate-500">
+                Price / bag
+                <input
+                  type="number"
+                  min={0}
+                  step={0.01}
+                  value={form[`${b.key}UnitPrice`]}
+                  onChange={(e) => onChange(`${b.key}UnitPrice`, e.target.value)}
+                  className="mt-0.5 w-full rounded-lg border-0 bg-white px-2 py-2 text-sm tabular-nums ring-1 ring-slate-200"
+                />
+              </label>
+            </div>
+          ))}
+        </div>
+      </div>
+    </>
+  );
+}
+
 export default function BillsPage() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -46,6 +132,7 @@ export default function BillsPage() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(null);
   const [detailBill, setDetailBill] = useState(null);
+  const [editBill, setEditBill] = useState(null);
   const [customers, setCustomers] = useState([]);
   const [search, setSearch] = useState('');
   const [stockFilter, setStockFilter] = useState('');
@@ -134,6 +221,20 @@ export default function BillsPage() {
     setForm((f) => ({ ...f, [field]: value }));
   };
 
+  const buildBillBody = () => {
+    const selected = customers.find((c) => c.id === form.customerId);
+    if (!selected) return { error: 'Please select a customer from the list.' };
+    const body = {
+      date: form.date,
+      customerName: String(selected.name || '').trim(),
+    };
+    for (const b of BRANDS) {
+      body[`${b.key}Bags`] = form[`${b.key}Bags`];
+      body[`${b.key}UnitPrice`] = form[`${b.key}UnitPrice`];
+    }
+    return { body };
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     const username = getUsername();
@@ -141,28 +242,19 @@ export default function BillsPage() {
       setSaveError('You need to be signed in with a username.');
       return;
     }
-    const selected = customers.find((c) => c.id === form.customerId);
-    if (!selected) {
-      setSaveError('Please select a customer from the list.');
+    const built = buildBillBody();
+    if (built.error) {
+      setSaveError(built.error);
       return;
     }
 
     setSaving(true);
     setSaveError(null);
     try {
-      const body = {
-        enteredBy: username,
-        date: form.date,
-        customerName: String(selected.name || '').trim(),
-      };
-      for (const b of BRANDS) {
-        body[`${b.key}Bags`] = form[`${b.key}Bags`];
-        body[`${b.key}UnitPrice`] = form[`${b.key}UnitPrice`];
-      }
       const res = await fetch(`${apiBase}/api/bills`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ ...built.body, enteredBy: username }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -171,6 +263,60 @@ export default function BillsPage() {
       }
       await load();
       closeAdd();
+    } catch {
+      setSaveError('Could not reach the server.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const closeBillEdit = () => {
+    setEditBill(null);
+    setSaveError(null);
+  };
+
+  const openBillEditFromDetail = () => {
+    if (!detailBill) return;
+    setSaveError(null);
+    loadCustomers();
+    setEditBill(detailBill);
+    setDetailBill(null);
+  };
+
+  useEffect(() => {
+    if (!editBill) return;
+    setForm(formFromBill(editBill, customers));
+  }, [editBill, customers]);
+
+  const handleEditSubmit = async (e) => {
+    e.preventDefault();
+    const username = getUsername();
+    if (!username) {
+      setSaveError('You need to be signed in with a username.');
+      return;
+    }
+    if (!editBill?.id) return;
+    const built = buildBillBody();
+    if (built.error) {
+      setSaveError(built.error);
+      return;
+    }
+
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const res = await fetch(`${apiBase}/api/bills/${encodeURIComponent(editBill.id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...built.body, updatedBy: username }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setSaveError(data.error || 'Update failed');
+        return;
+      }
+      await load();
+      closeBillEdit();
     } catch {
       setSaveError('Could not reach the server.');
     } finally {
@@ -363,69 +509,7 @@ export default function BillsPage() {
               {saveError ? (
                 <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-800 ring-1 ring-red-100">{saveError}</p>
               ) : null}
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label className="block text-sm font-medium text-slate-600 sm:col-span-2">
-                  Date
-                  <input
-                    type="date"
-                    required
-                    value={form.date}
-                    onChange={(e) => handleFormChange('date', e.target.value)}
-                    className="mt-1 w-full rounded-xl border-0 bg-slate-100 px-3 py-2.5 text-sm ring-1 ring-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/35"
-                  />
-                </label>
-                <label className="block text-sm font-medium text-slate-600 sm:col-span-2">
-                  Customer
-                  <select
-                    required
-                    value={form.customerId}
-                    onChange={(e) => handleFormChange('customerId', e.target.value)}
-                    className="mt-1 w-full rounded-xl border-0 bg-slate-100 px-3 py-2.5 text-sm ring-1 ring-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/35 disabled:cursor-not-allowed disabled:opacity-60"
-                    disabled={customers.length === 0}
-                  >
-                    <option value="">
-                      {customers.length === 0 ? 'No customers yet — add some on Customers' : 'Select customer…'}
-                    </option>
-                    {customers.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-              <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Bags &amp; unit price (LKR)</p>
-                <div className="mt-3 space-y-3">
-                  {BRANDS.map((b) => (
-                    <div key={b.key} className="grid grid-cols-2 items-end gap-2 sm:grid-cols-3">
-                      <span className="col-span-2 text-sm font-medium text-slate-800 sm:col-span-1">{b.label}</span>
-                      <label className="text-xs text-slate-500">
-                        Bags
-                        <input
-                          type="number"
-                          min={0}
-                          step={1}
-                          value={form[`${b.key}Bags`]}
-                          onChange={(e) => handleFormChange(`${b.key}Bags`, e.target.value)}
-                          className="mt-0.5 w-full rounded-lg border-0 bg-white px-2 py-2 text-sm tabular-nums ring-1 ring-slate-200"
-                        />
-                      </label>
-                      <label className="text-xs text-slate-500">
-                        Price / bag
-                        <input
-                          type="number"
-                          min={0}
-                          step={0.01}
-                          value={form[`${b.key}UnitPrice`]}
-                          onChange={(e) => handleFormChange(`${b.key}UnitPrice`, e.target.value)}
-                          className="mt-0.5 w-full rounded-lg border-0 bg-white px-2 py-2 text-sm tabular-nums ring-1 ring-slate-200"
-                        />
-                      </label>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              <BillSaleFormFields form={form} customers={customers} onChange={handleFormChange} />
               <div className="flex flex-wrap justify-end gap-2 pt-2">
                 <button
                   type="button"
@@ -447,7 +531,60 @@ export default function BillsPage() {
         </div>
       ) : null}
 
-      <RowDetailModal open={!!detailBill} row={detailBill} variant="bill" onClose={() => setDetailBill(null)} />
+      {editBill ? (
+        <div
+          className="fixed inset-0 z-[100] flex items-end justify-center p-4 sm:items-center"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="bills-edit-title"
+        >
+          <button type="button" className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" aria-label="Close" onClick={closeBillEdit} />
+          <div className={modalPanelClass}>
+            <h2 id="bills-edit-title" className="text-lg font-bold text-slate-900">
+              Edit credit sale
+            </h2>
+            <p className="mt-1 text-sm text-slate-500">Logged in as {getUsername() || '—'}</p>
+            <form className="mt-5 space-y-4" onSubmit={handleEditSubmit}>
+              {saveError ? (
+                <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-800 ring-1 ring-red-100">{saveError}</p>
+              ) : null}
+              <BillSaleFormFields form={form} customers={customers} onChange={handleFormChange} />
+              <div className="flex flex-wrap justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={closeBillEdit}
+                  className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={saving || customers.length === 0}
+                  className="rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 px-4 py-2.5 text-sm font-semibold text-white shadow-md disabled:opacity-60"
+                >
+                  {saving ? 'Saving…' : 'Save changes'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
+
+      <RowDetailModal
+        open={!!detailBill}
+        row={detailBill}
+        variant="bill"
+        onClose={() => setDetailBill(null)}
+        actions={
+          <button
+            type="button"
+            onClick={openBillEditFromDetail}
+            className="mt-4 w-full rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2.5 text-sm font-semibold text-indigo-800 ring-1 ring-indigo-100 hover:bg-indigo-100"
+          >
+            Edit bill
+          </button>
+        }
+      />
     </div>
   );
 }

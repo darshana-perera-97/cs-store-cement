@@ -17,7 +17,7 @@ import RowDetailModal, { detailRowAttrs } from './RowDetailModal';
 
 const apiBase = getApiBase();
 
-const VEHICLE_OPTIONS = ['NW NA 2072', 'NW NB 2071', 'NW NC 2345'];
+const VEHICLE_OPTIONS = ['LA 9899', 'GQ 4665', 'PD 1306', 'Other'];
 
 const emptyForm = () => ({
   date: new Date().toISOString().slice(0, 10),

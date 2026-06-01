@@ -301,13 +301,7 @@ export default function StockPage() {
       ) : null}
       </div>
 
-      <RowDetailModal
-        open={!!detailLedgerDay}
-        row={detailLedgerDay}
-        title="Daily ledger row"
-        subtitle={detailLedgerDay?.date || null}
-        onClose={() => setDetailLedgerDay(null)}
-      />
+      <RowDetailModal open={!!detailLedgerDay} row={detailLedgerDay} variant="ledgerDay" onClose={() => setDetailLedgerDay(null)} />
     </div>
   );
 }

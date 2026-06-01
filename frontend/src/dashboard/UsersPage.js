@@ -314,13 +314,7 @@ export default function UsersPage() {
         </div>
       ) : null}
 
-      <RowDetailModal
-        open={!!detailUser}
-        row={detailUser}
-        title="User details"
-        subtitle={detailUser?.username || null}
-        onClose={() => setDetailUser(null)}
-      />
+      <RowDetailModal open={!!detailUser} row={detailUser} variant="user" onClose={() => setDetailUser(null)} />
     </div>
   );
 }

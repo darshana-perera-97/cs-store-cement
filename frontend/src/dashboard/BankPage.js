@@ -7,6 +7,8 @@ import {
   scrollTableWrap,
   stickyThead,
 } from './tableToolbar';
+import RowDetailModal, { detailRowAttrs } from './RowDetailModal';
+import { buildChequeTableRows, chequePortion } from './paymentCheques';
 
 const apiBase = getApiBase();
 
@@ -33,10 +35,6 @@ function cashPortion(p) {
   return paymentTotal(p);
 }
 
-function chequePortion(p) {
-  return Math.max(0, Number(p.chequeAmount) || 0);
-}
-
 function buildDailyRows(payments) {
   const map = new Map();
   for (const p of payments) {
@@ -54,22 +52,16 @@ function buildDailyRows(payments) {
 }
 
 function buildChequeRows(payments) {
-  const rows = [];
-  for (const p of payments) {
-    const amt = chequePortion(p);
-    if (amt <= 0) continue;
-    const chequeDate = String(p.chequeDate || p.date || '').slice(0, 10);
-    rows.push({
-      id: p.id,
-      chequeDate,
-      amount: amt,
-      chequeNumber: String(p.chequeNumber ?? '').trim() || '—',
-      customerName: String(p.customerName ?? '').trim() || '—',
-      billNumber: p.billNumber != null ? String(p.billNumber) : '—',
-      paymentDate: String(p.date ?? '').slice(0, 10) || '—',
-      sortAt: p.createdAt || `${p.date}T12:00:00`,
-    });
-  }
+  const rows = buildChequeTableRows(payments, (p, _c, flat) => ({
+    id: flat.rowKey,
+    chequeDate: flat.chequeDate,
+    amount: flat.amount,
+    chequeNumber: flat.chequeNumber,
+    customerName: String(p.customerName ?? '').trim() || '—',
+    billNumber: p.billNumber != null ? String(p.billNumber) : '—',
+    paymentDate: String(p.date ?? '').slice(0, 10) || '—',
+    sortAt: p.createdAt || `${p.date}T12:00:00`,
+  }));
   rows.sort((a, b) => {
     const cmp = a.chequeDate.localeCompare(b.chequeDate);
     if (cmp !== 0) return cmp;
@@ -90,6 +82,8 @@ export default function BankPage() {
   const [tab, setTab] = useState('cash');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [detailDaily, setDetailDaily] = useState(null);
+  const [detailCheque, setDetailCheque] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -234,7 +228,11 @@ export default function BankPage() {
                   </tr>
                 ) : (
                   dailyRows.map((r) => (
-                    <tr key={r.date} className="hover:bg-slate-50/80">
+                    <tr
+                      key={r.date}
+                      {...detailRowAttrs(() => setDetailDaily(r), 'hover:bg-slate-50/80')}
+                      aria-label={`Bank summary ${r.date}`}
+                    >
                       <td className="whitespace-nowrap px-4 py-3 tabular-nums font-medium">{r.date}</td>
                       <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-emerald-800">
                         {money(r.cashIn)}
@@ -291,7 +289,11 @@ export default function BankPage() {
                   </tr>
                 ) : (
                   chequeRows.map((r) => (
-                    <tr key={r.id} className="hover:bg-slate-50/80">
+                    <tr
+                      key={r.id}
+                      {...detailRowAttrs(() => setDetailCheque(r), 'hover:bg-slate-50/80')}
+                      aria-label={`Cheque ${r.chequeNumber || r.id || ''}`}
+                    >
                       <td className="whitespace-nowrap px-4 py-3 tabular-nums">{r.chequeDate}</td>
                       <td className="whitespace-nowrap px-4 py-3 text-right font-semibold tabular-nums text-violet-800">
                         {money(r.amount)}
@@ -317,6 +319,9 @@ export default function BankPage() {
           </div>
         </div>
       )}
+
+      <RowDetailModal open={!!detailDaily} row={detailDaily} variant="bankDaily" onClose={() => setDetailDaily(null)} />
+      <RowDetailModal open={!!detailCheque} row={detailCheque} variant="bankCheque" onClose={() => setDetailCheque(null)} />
     </div>
   );
 }

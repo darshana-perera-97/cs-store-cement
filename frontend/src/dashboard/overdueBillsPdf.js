@@ -3,7 +3,7 @@ import autoTable from 'jspdf-autotable';
 
 /**
  * Build an A4 portrait PDF of overdue bills (multi-page when needed).
- * @param {Array<{ customerName: string, details: string, billDate: string, dueDate: string, daysOverdue: number, outstandingAmount: number }>} rows
+ * @param {Array<{ customerName: string, details: string, dueDate: string, daysOverdue: number, outstandingAmount: number }>} rows
  */
 export function downloadOverdueBillsPdf(rows, options = {}) {
   const { generatedAt = new Date() } = options;
@@ -37,13 +37,12 @@ export function downloadOverdueBillsPdf(rows, options = {}) {
   );
   doc.setTextColor(0, 0, 0);
 
-  const head = [['Customer', 'Bill details', 'Bill date', 'Due date', 'Days overdue', 'Outstanding']];
+  const head = [['Customer', 'Bill details', 'Due date', 'Days overdue', 'Outstanding']];
   const body = (rows || []).map((r) => [
     String(r.customerName ?? '').trim(),
     String(r.details ?? '')
       .replace(/\s+/g, ' ')
       .trim(),
-    String(r.billDate ?? ''),
     String(r.dueDate ?? ''),
     String(r.daysOverdue ?? 0),
     new Intl.NumberFormat(undefined, {
@@ -66,11 +65,10 @@ export function downloadOverdueBillsPdf(rows, options = {}) {
     alternateRowStyles: { fillColor: [248, 250, 252] },
     columnStyles: {
       0: { cellWidth: 32 },
-      1: { cellWidth: 58 },
-      2: { cellWidth: 22 },
-      3: { cellWidth: 22 },
-      4: { halign: 'right', cellWidth: 18 },
-      5: { halign: 'right', cellWidth: 26 },
+      1: { cellWidth: 72 },
+      2: { cellWidth: 24 },
+      3: { halign: 'right', cellWidth: 22 },
+      4: { halign: 'right', cellWidth: 28 },
     },
     tableWidth: pageW - margin * 2,
     showHead: 'everyPage',

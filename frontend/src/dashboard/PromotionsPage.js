@@ -439,17 +439,7 @@ export default function PromotionsPage() {
         </div>
       ) : null}
 
-      <RowDetailModal
-        open={!!detailRow}
-        row={detailRow}
-        title="Promotion details"
-        subtitle={
-          detailRow
-            ? [detailRow.date, detailRow.customerName].filter(Boolean).join(' · ') || null
-            : null
-        }
-        onClose={() => setDetailRow(null)}
-      />
+      <RowDetailModal open={!!detailRow} row={detailRow} variant="promotion" onClose={() => setDetailRow(null)} />
     </div>
   );
 }

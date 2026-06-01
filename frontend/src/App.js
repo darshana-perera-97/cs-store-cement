@@ -14,6 +14,7 @@ import BankPage from './dashboard/BankPage';
 import PromotionsPage from './dashboard/PromotionsPage';
 import UsersPage from './dashboard/UsersPage';
 import StockPage from './dashboard/StockPage';
+import ReportsPage from './dashboard/ReportsPage';
 
 function ProtectedRoute({ children }) {
   if (!isAuthed()) {
@@ -39,6 +40,7 @@ function AppRoutes() {
       >
         <Route index element={<Navigate to="analytics" replace />} />
         <Route path="analytics" element={<AnalyticsPage />} />
+        <Route path="reports" element={<ReportsPage />} />
         <Route path="customers/:customerId" element={<CustomerTransactionsPage />} />
         <Route path="customers" element={<CustomersPage />} />
         <Route path="stock" element={<StockPage />} />

@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { getApiBase } from '../apiBase';
 import { getUsername } from '../auth';
 import {
@@ -14,6 +14,7 @@ import {
   modalPanelClass,
 } from './tableToolbar';
 import RowDetailModal, { detailRowAttrs } from './RowDetailModal';
+import { getPaymentCheques } from './paymentCheques';
 
 const apiBase = getApiBase();
 
@@ -33,18 +34,29 @@ function todayYmdLocal() {
   return `${y}-${m}-${day}`;
 }
 
+let chequeKeySeq = 0;
+function newChequeLine() {
+  chequeKeySeq += 1;
+  return {
+    key: `chq-${chequeKeySeq}`,
+    amount: '',
+    chequeDate: todayYmdLocal(),
+    chequeNumber: '',
+  };
+}
+
 const emptyForm = () => ({
   customerId: '',
   billNumber: '',
   cashAmount: '',
-  chequeAmount: '',
-  chequeDate: todayYmdLocal(),
-  chequeNumber: '',
+  cheques: [newChequeLine()],
   date: todayYmdLocal(),
   note: '',
 });
 
 export default function PaymentsPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const appliedCustomerPrefill = useRef(false);
   const [rows, setRows] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -94,6 +106,20 @@ export default function PaymentsPage() {
     loadCustomers();
   }, [loadCustomers]);
 
+  useEffect(() => {
+    if (appliedCustomerPrefill.current) return;
+    const customerId = searchParams.get('customerId')?.trim();
+    if (!customerId) return;
+    appliedCustomerPrefill.current = true;
+    setCustomerFilter(customerId);
+    if (searchParams.get('record') === '1') {
+      setForm({ ...emptyForm(), customerId });
+      setSaveError(null);
+      setModalOpen(true);
+    }
+    setSearchParams({}, { replace: true });
+  }, [searchParams, setSearchParams]);
+
   const filteredRows = useMemo(() => {
     return rows.filter((r) => {
       if (!inDateRange(r.date, dateFrom, dateTo)) return false;
@@ -106,8 +132,7 @@ export default function PaymentsPage() {
           r.note,
           r.recordedBy,
           String(r.amount),
-          r.chequeDate,
-          r.chequeNumber,
+          ...getPaymentCheques(r).flatMap((c) => [c.chequeDate, c.chequeNumber]),
         ])
       ) {
         return false;
@@ -127,8 +152,8 @@ export default function PaymentsPage() {
     [filteredRows, pagination.offset, pagination.pageSize]
   );
 
-  const openModal = () => {
-    setForm(emptyForm());
+  const openModal = (prefillCustomerId = '') => {
+    setForm({ ...emptyForm(), customerId: prefillCustomerId || '' });
     setSaveError(null);
     loadCustomers();
     setModalOpen(true);
@@ -148,6 +173,26 @@ export default function PaymentsPage() {
     setForm((f) => ({ ...f, [field]: value }));
   };
 
+  const handleChequeChange = (key, field, value) => {
+    setForm((f) => ({
+      ...f,
+      cheques: f.cheques.map((c) => (c.key === key ? { ...c, [field]: value } : c)),
+    }));
+  };
+
+  const addChequeLine = () => {
+    setForm((f) => ({ ...f, cheques: [...f.cheques, newChequeLine()] }));
+  };
+
+  const removeChequeLine = (key) => {
+    setForm((f) => {
+      const next = f.cheques.filter((c) => c.key !== key);
+      return { ...f, cheques: next.length > 0 ? next : [newChequeLine()] };
+    });
+  };
+
+  const chequeTotalPreview = form.cheques.reduce((s, c) => s + (Number(c.amount) || 0), 0);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     const username = getUsername();
@@ -164,20 +209,29 @@ export default function PaymentsPage() {
       return;
     }
     const cash = Number(form.cashAmount) || 0;
-    const cheque = Number(form.chequeAmount) || 0;
-    if (cash <= 0 && cheque <= 0) {
-      setSaveError('Enter a cash amount and/or cheque amount so the total is greater than 0.');
-      return;
+    const chequeLines = [];
+    for (let i = 0; i < form.cheques.length; i++) {
+      const line = form.cheques[i];
+      const amount = Number(line.amount) || 0;
+      if (amount <= 0) continue;
+      if (!line.chequeDate || !/^\d{4}-\d{2}-\d{2}$/.test(line.chequeDate)) {
+        setSaveError(`Cheque ${i + 1}: enter a valid cheque date.`);
+        return;
+      }
+      if (!String(line.chequeNumber).trim()) {
+        setSaveError(`Cheque ${i + 1}: enter a cheque number.`);
+        return;
+      }
+      chequeLines.push({
+        amount,
+        chequeDate: line.chequeDate,
+        chequeNumber: String(line.chequeNumber).trim(),
+      });
     }
-    if (cheque > 0) {
-      if (!form.chequeDate || !/^\d{4}-\d{2}-\d{2}$/.test(form.chequeDate)) {
-        setSaveError('Enter a valid cheque date when cheque amount is greater than 0.');
-        return;
-      }
-      if (!String(form.chequeNumber).trim()) {
-        setSaveError('Enter a cheque number when cheque amount is greater than 0.');
-        return;
-      }
+    const chequeTotal = chequeLines.reduce((s, c) => s + c.amount, 0);
+    if (cash <= 0 && chequeTotal <= 0) {
+      setSaveError('Enter a cash amount and/or at least one cheque so the total is greater than 0.');
+      return;
     }
     const padBill = String(parseInt(form.billNumber, 10)).padStart(3, '0');
     if (rows.some((r) => String(r.billNumber || '') === padBill)) {
@@ -195,9 +249,7 @@ export default function PaymentsPage() {
           customerId: form.customerId,
           billNumber: form.billNumber,
           cashAmount: cash,
-          chequeAmount: cheque,
-          chequeDate: form.chequeDate,
-          chequeNumber: String(form.chequeNumber).trim(),
+          cheques: chequeLines,
           date: form.date,
           note: form.note.trim(),
         }),
@@ -300,7 +352,6 @@ export default function PaymentsPage() {
               <th className="whitespace-nowrap px-4 py-3 font-mono">Bill #</th>
               <th className="px-4 py-3">Customer</th>
               <th className="whitespace-nowrap px-4 py-3 text-right">Amount</th>
-              <th className="px-4 py-3">Note</th>
               <th className="whitespace-nowrap px-4 py-3">Recorded by</th>
               <th className="whitespace-nowrap px-4 py-3 text-center"> </th>
             </tr>
@@ -308,19 +359,19 @@ export default function PaymentsPage() {
           <tbody className="divide-y divide-slate-100 text-slate-800">
             {loading ? (
               <tr>
-                <td colSpan={7} className="px-4 py-10 text-center text-slate-500">
+                <td colSpan={6} className="px-4 py-10 text-center text-slate-500">
                   Loading…
                 </td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-4 py-10 text-center text-slate-500">
+                <td colSpan={6} className="px-4 py-10 text-center text-slate-500">
                   No payments yet. Record one to update customer balances.
                 </td>
               </tr>
             ) : filteredRows.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-4 py-10 text-center text-slate-500">
+                <td colSpan={6} className="px-4 py-10 text-center text-slate-500">
                   No payments match your search or filters.
                 </td>
               </tr>
@@ -340,9 +391,6 @@ export default function PaymentsPage() {
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-right font-semibold tabular-nums text-emerald-700">
                     −{money(r.amount)}
-                  </td>
-                  <td className="max-w-xs px-4 py-3 text-slate-600">
-                    <span className="line-clamp-2">{r.note || '—'}</span>
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-slate-600">{r.recordedBy || '—'}</td>
                   <td className="px-4 py-3 text-center">
@@ -454,48 +502,83 @@ export default function PaymentsPage() {
                   />
                 </label>
               </div>
-              <div className="rounded-xl bg-slate-50/90 p-4 ring-1 ring-slate-100">
-                <p className="text-sm font-semibold text-slate-800">Cheque</p>
-                <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                  <label className="block text-sm font-medium text-slate-600">
-                    Amount (LKR)
-                    <input
-                      type="number"
-                      min={0}
-                      step={0.01}
-                      value={form.chequeAmount}
-                      onChange={(e) => handleChange('chequeAmount', e.target.value)}
-                      className="mt-1 w-full rounded-xl border-0 bg-white px-3 py-2.5 text-sm tabular-nums ring-1 ring-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/35"
-                      placeholder="0"
-                    />
-                  </label>
-                  <label className="block text-sm font-medium text-slate-600">
-                    Cheque date
-                    <input
-                      type="date"
-                      value={form.chequeDate}
-                      onChange={(e) => handleChange('chequeDate', e.target.value)}
-                      className="mt-1 w-full rounded-xl border-0 bg-white px-3 py-2.5 text-sm ring-1 ring-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/35"
-                    />
-                  </label>
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-semibold text-slate-800">Cheques</p>
+                  <button
+                    type="button"
+                    onClick={addChequeLine}
+                    className="rounded-lg border border-indigo-200 bg-white px-3 py-1.5 text-xs font-semibold text-indigo-700 shadow-sm transition hover:bg-indigo-50"
+                  >
+                    + Add cheque
+                  </button>
                 </div>
-                <label className="mt-3 block text-sm font-medium text-slate-600">
-                  Cheque number
-                  <input
-                    type="text"
-                    autoComplete="off"
-                    value={form.chequeNumber}
-                    onChange={(e) => handleChange('chequeNumber', e.target.value)}
-                    className="mt-1 w-full rounded-xl border-0 bg-white px-3 py-2.5 text-sm ring-1 ring-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/35"
-                    placeholder="e.g. 123456"
-                  />
-                </label>
+                {form.cheques.map((line, index) => (
+                  <div
+                    key={line.key}
+                    className="rounded-xl bg-slate-50/90 p-4 ring-1 ring-slate-100"
+                  >
+                    <div className="mb-3 flex items-center justify-between gap-2">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        Cheque {index + 1}
+                      </p>
+                      {form.cheques.length > 1 ? (
+                        <button
+                          type="button"
+                          onClick={() => removeChequeLine(line.key)}
+                          className="text-xs font-medium text-slate-500 hover:text-rose-600"
+                        >
+                          Remove
+                        </button>
+                      ) : null}
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <label className="block text-sm font-medium text-slate-600">
+                        Amount (LKR)
+                        <input
+                          type="number"
+                          min={0}
+                          step={0.01}
+                          value={line.amount}
+                          onChange={(e) => handleChequeChange(line.key, 'amount', e.target.value)}
+                          className="mt-1 w-full rounded-xl border-0 bg-white px-3 py-2.5 text-sm tabular-nums ring-1 ring-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/35"
+                          placeholder="0"
+                        />
+                      </label>
+                      <label className="block text-sm font-medium text-slate-600">
+                        Cheque date
+                        <input
+                          type="date"
+                          value={line.chequeDate}
+                          onChange={(e) => handleChequeChange(line.key, 'chequeDate', e.target.value)}
+                          className="mt-1 w-full rounded-xl border-0 bg-white px-3 py-2.5 text-sm ring-1 ring-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/35"
+                        />
+                      </label>
+                    </div>
+                    <label className="mt-3 block text-sm font-medium text-slate-600">
+                      Cheque number
+                      <input
+                        type="text"
+                        autoComplete="off"
+                        value={line.chequeNumber}
+                        onChange={(e) => handleChequeChange(line.key, 'chequeNumber', e.target.value)}
+                        className="mt-1 w-full rounded-xl border-0 bg-white px-3 py-2.5 text-sm ring-1 ring-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/35"
+                        placeholder="e.g. 123456"
+                      />
+                    </label>
+                  </div>
+                ))}
               </div>
               <p className="text-sm text-slate-600">
                 Total payment:{' '}
                 <span className="font-semibold tabular-nums text-slate-900">
-                  {money((Number(form.cashAmount) || 0) + (Number(form.chequeAmount) || 0))}
+                  {money((Number(form.cashAmount) || 0) + chequeTotalPreview)}
                 </span>
+                {chequeTotalPreview > 0 ? (
+                  <span className="ml-2 text-xs text-slate-500">
+                    (cheques: {money(chequeTotalPreview)})
+                  </span>
+                ) : null}
               </p>
               <label className="block text-sm font-medium text-slate-600">
                 Note (optional)
@@ -528,17 +611,7 @@ export default function PaymentsPage() {
         </div>
       ) : null}
 
-      <RowDetailModal
-        open={!!detailPayment}
-        row={detailPayment}
-        title="Payment details"
-        subtitle={
-          detailPayment
-            ? [detailPayment.date, detailPayment.customerName].filter(Boolean).join(' · ')
-            : null
-        }
-        onClose={() => setDetailPayment(null)}
-      />
+      <RowDetailModal open={!!detailPayment} row={detailPayment} variant="payment" onClose={() => setDetailPayment(null)} />
     </div>
   );
 }

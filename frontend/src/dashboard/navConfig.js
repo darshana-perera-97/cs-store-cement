@@ -5,6 +5,11 @@ export const DASHBOARD_NAV = [
     icon: 'chart',
   },
   {
+    to: '/dashboard/reports',
+    label: 'Reports',
+    icon: 'report',
+  },
+  {
     to: '/dashboard/customers',
     label: 'Customers',
     icon: 'users',

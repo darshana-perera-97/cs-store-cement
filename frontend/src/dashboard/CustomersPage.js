@@ -275,7 +275,7 @@ export default function CustomersPage() {
                         }}
                         className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-800"
                       >
-                        Transactions
+                        View account
                       </button>
                     </td>
                   </tr>
@@ -393,13 +393,7 @@ export default function CustomersPage() {
         </div>
       ) : null}
 
-      <RowDetailModal
-        open={!!detailCustomer}
-        row={detailCustomer}
-        title="Customer details"
-        subtitle={detailCustomer?.name || null}
-        onClose={() => setDetailCustomer(null)}
-      />
+      <RowDetailModal open={!!detailCustomer} row={detailCustomer} variant="customer" onClose={() => setDetailCustomer(null)} />
     </div>
   );
 }

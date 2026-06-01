@@ -610,13 +610,7 @@ export default function LoadsPage() {
         </div>
       ) : null}
 
-      <RowDetailModal
-        open={!!detailRow}
-        row={detailRow}
-        title="Load details"
-        subtitle={detailRow ? String(detailRow.stockId || '').trim() || detailRow.id || '' : null}
-        onClose={() => setDetailRow(null)}
-      />
+      <RowDetailModal open={!!detailRow} row={detailRow} variant="load" onClose={() => setDetailRow(null)} />
     </div>
   );
 }

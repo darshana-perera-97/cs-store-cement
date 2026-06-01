@@ -16,6 +16,7 @@ import {
 } from 'recharts';
 import { getApiBase } from '../apiBase';
 import { getUsername } from '../auth';
+import { depositQueueRowKey } from './paymentCheques';
 import { BRANDS } from './brandTheme';
 import {
   TableFiltersBar,
@@ -112,7 +113,6 @@ function OverdueBillsTable({ rows, totalLoadedCount, defaultPageSize = 10, reset
             <tr className="text-xs font-semibold uppercase tracking-wide text-slate-400">
               <th className="pb-3 pl-1 pr-3">Customer</th>
               <th className="pb-3 pr-3">Bill details</th>
-              <th className="pb-3 pr-3">Bill date</th>
               <th className="pb-3 pr-3">Due date</th>
               <th className="pb-3 pr-3 text-right">Days overdue</th>
               <th className="pb-3 pr-1 text-right">Outstanding</th>
@@ -121,7 +121,7 @@ function OverdueBillsTable({ rows, totalLoadedCount, defaultPageSize = 10, reset
           <tbody className="divide-y divide-slate-50">
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={6} className="py-8 text-center text-sm text-slate-500">
+                <td colSpan={5} className="py-8 text-center text-sm text-slate-500">
                   {totalLoadedCount === 0 ? 'No overdue bills.' : 'No rows match your search.'}
                 </td>
               </tr>
@@ -138,7 +138,6 @@ function OverdueBillsTable({ rows, totalLoadedCount, defaultPageSize = 10, reset
                 <td className="max-w-[260px] py-3.5 pr-3 text-xs leading-snug text-slate-600 sm:text-sm">
                   <span className="line-clamp-3">{row.details}</span>
                 </td>
-                <td className="whitespace-nowrap py-3.5 pr-3 tabular-nums text-slate-600">{row.billDate}</td>
                 <td className="whitespace-nowrap py-3.5 pr-3 tabular-nums text-slate-600">{row.dueDate}</td>
                 <td className="py-3.5 pr-3 text-right">
                   <span className="inline-flex min-w-[2rem] justify-end font-semibold tabular-nums text-rose-600">
@@ -165,13 +164,7 @@ function OverdueBillsTable({ rows, totalLoadedCount, defaultPageSize = 10, reset
           pageSizeOptions={pageSizeOptionsWith(defaultPageSize)}
         />
       ) : null}
-      <RowDetailModal
-        open={!!detailRow}
-        row={detailRow}
-        title="Overdue bill details"
-        subtitle={detailRow?.customerName || null}
-        onClose={() => setDetailRow(null)}
-      />
+      <RowDetailModal open={!!detailRow} row={detailRow} variant="overdueBill" onClose={() => setDetailRow(null)} />
     </div>
   );
 }
@@ -211,21 +204,25 @@ export default function AnalyticsPage() {
   }, [apiRoot]);
 
   const handleMarkChequeDeposited = useCallback(
-    async (paymentId) => {
+    async (row) => {
       const username = getUsername();
       if (!username) {
         setChequeDepositErr('Sign in with a username to record deposits.');
         return;
       }
+      const rowKey = depositQueueRowKey(row);
       setChequeDepositErr(null);
-      setMarkingChequeId(paymentId);
+      setMarkingChequeId(rowKey);
       try {
         const res = await fetch(
-          `${apiRoot}/api/payments/${encodeURIComponent(paymentId)}/cheque-deposited`,
+          `${apiRoot}/api/payments/${encodeURIComponent(row.id)}/cheque-deposited`,
           {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ recordedBy: username }),
+            body: JSON.stringify({
+              recordedBy: username,
+              ...(row.chequeId && row.chequeId !== '_legacy' ? { chequeId: row.chequeId } : {}),
+            }),
           },
         );
         const data = await res.json().catch(() => ({}));
@@ -707,7 +704,7 @@ export default function AnalyticsPage() {
               </thead>
               <tbody className="divide-y divide-slate-100 text-slate-800">
                 {chequeDepositQueue.items.map((row) => (
-                  <tr key={row.id} className="hover:bg-slate-50/80">
+                  <tr key={depositQueueRowKey(row)} className="hover:bg-slate-50/80">
                     <td className="max-w-[180px] px-3 py-3 font-medium text-slate-900">
                       <span className="line-clamp-2">{row.customerName || '—'}</span>
                     </td>
@@ -723,10 +720,10 @@ export default function AnalyticsPage() {
                       <button
                         type="button"
                         disabled={!!markingChequeId}
-                        onClick={() => handleMarkChequeDeposited(row.id)}
+                        onClick={() => handleMarkChequeDeposited(row)}
                         className="rounded-xl bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
                       >
-                        {markingChequeId === row.id ? 'Saving…' : 'Mark deposited'}
+                        {markingChequeId === depositQueueRowKey(row) ? 'Saving…' : 'Mark deposited'}
                       </button>
                     </td>
                   </tr>

@@ -17,8 +17,12 @@ function paymentCreditToCustomer(p) {
   return toNonNegMoney(p?.cashAmount) + toNonNegMoney(p?.chequeAmount);
 }
 
-/** True balance: opening past bill + all credit bills by name − all payments by customer id. */
-function computeRemainingAmount(customer, bills, payments) {
+function roundMoney(n) {
+  return Math.round(n * 100) / 100;
+}
+
+/** Signed balance: opening past bill + credit bills − payments (negative = overpaid). */
+function computeRawBalance(customer, bills, payments) {
   const nameKey = normalizeCustomerName(customer.name);
   let owed = toNonNegMoney(customer.pastBill);
   for (const b of bills) {
@@ -29,11 +33,27 @@ function computeRemainingAmount(customer, bills, payments) {
     if (p.customerId !== customer.id) continue;
     owed -= paymentCreditToCustomer(p);
   }
-  return Math.max(0, Math.round(owed * 100) / 100);
+  return roundMoney(owed);
+}
+
+/** Amount still owed and any credit from paying more than owed. */
+function computeCustomerBalance(customer, bills, payments) {
+  const raw = computeRawBalance(customer, bills, payments);
+  return {
+    amountToPay: Math.max(0, raw),
+    overpaymentAmount: Math.max(0, -raw),
+  };
+}
+
+/** Amount still owed (0 when the customer has overpaid). */
+function computeRemainingAmount(customer, bills, payments) {
+  return computeCustomerBalance(customer, bills, payments).amountToPay;
 }
 
 module.exports = {
   normalizeCustomerName,
+  computeRawBalance,
+  computeCustomerBalance,
   computeRemainingAmount,
   paymentCreditToCustomer,
 };

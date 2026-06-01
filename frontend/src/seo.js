@@ -12,6 +12,7 @@ const SECTION_RULES = [
     title: `Dashboard — ${BRAND}`,
   },
   { test: (p) => p === '/dashboard/analytics', title: `Analytics — ${BRAND}` },
+  { test: (p) => p === '/dashboard/reports', title: `Reports — ${BRAND}` },
   { test: (p) => p === '/dashboard/customers', title: `Customers — ${BRAND}` },
   {
     test: (p) => p.startsWith('/dashboard/customers/'),

@@ -447,17 +447,7 @@ export default function BillsPage() {
         </div>
       ) : null}
 
-      <RowDetailModal
-        open={!!detailBill}
-        row={detailBill}
-        title="Bill details"
-        subtitle={
-          detailBill
-            ? [detailBill.date, detailBill.customerName].filter(Boolean).join(' · ')
-            : null
-        }
-        onClose={() => setDetailBill(null)}
-      />
+      <RowDetailModal open={!!detailBill} row={detailBill} variant="bill" onClose={() => setDetailBill(null)} />
     </div>
   );
 }

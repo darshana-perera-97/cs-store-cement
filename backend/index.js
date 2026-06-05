@@ -623,14 +623,11 @@ app.get('/api/customers', async (req, res) => {
     const customers = await readCustomers();
     const [bills, payments] = await Promise.all([readBills(), readPayments()]);
     const enriched = customers.map((c) => enrichCustomerBalance(c, bills, payments));
-    const sorted = [...enriched].sort((a, b) => {
-      const da = String(a.dueDate || '');
-      const db = String(b.dueDate || '');
-      if (da !== db) return da.localeCompare(db);
-      return String(a.name || '').localeCompare(String(b.name || ''), undefined, {
+    const sorted = [...enriched].sort((a, b) =>
+      String(a.name || '').localeCompare(String(b.name || ''), undefined, {
         sensitivity: 'base',
-      });
-    });
+      }),
+    );
     res.json(sorted);
   } catch (e) {
     console.error(e);

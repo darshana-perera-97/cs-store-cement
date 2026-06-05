@@ -62,7 +62,7 @@ export const stickyTheadTransparent =
   'sticky top-0 z-10 border-b border-slate-200 bg-white/90 shadow-[0_1px_0_0_rgb(241_245_249)] backdrop-blur-sm';
 
 /** Options in the rows-per-page control (values must be positive integers). */
-export const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
+export const PAGE_SIZE_OPTIONS = [8, 10, 25, 50, 100];
 
 const paginationBtn =
   'rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:pointer-events-none disabled:opacity-40';

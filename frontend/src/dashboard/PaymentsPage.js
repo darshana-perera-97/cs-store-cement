@@ -35,13 +35,16 @@ function todayYmdLocal() {
 }
 
 let chequeKeySeq = 0;
-function newChequeLine() {
+function newChequeLine(overrides = {}) {
   chequeKeySeq += 1;
   return {
     key: `chq-${chequeKeySeq}`,
+    id: '',
     amount: '',
     chequeDate: todayYmdLocal(),
     chequeNumber: '',
+    chequeDeposited: false,
+    ...overrides,
   };
 }
 
@@ -54,6 +57,32 @@ const emptyForm = () => ({
   note: '',
 });
 
+function formFromPayment(payment) {
+  const chequeRows = getPaymentCheques(payment);
+  const cheques =
+    chequeRows.length > 0
+      ? chequeRows.map((c) =>
+          newChequeLine({
+            id: c.id || '',
+            amount: String(c.amount),
+            chequeDate: c.chequeDate || todayYmdLocal(),
+            chequeNumber: c.chequeNumber,
+            chequeDeposited: c.chequeDeposited,
+          }),
+        )
+      : [newChequeLine()];
+  const billDigits = String(payment.billNumber ?? '').replace(/\D/g, '');
+  const billNumber = billDigits ? String(parseInt(billDigits, 10)) : '';
+  return {
+    customerId: payment.customerId || '',
+    billNumber,
+    cashAmount: payment.cashAmount != null && payment.cashAmount !== '' ? String(payment.cashAmount) : '',
+    cheques,
+    date: payment.date || todayYmdLocal(),
+    note: payment.note || '',
+  };
+}
+
 export default function PaymentsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const appliedCustomerPrefill = useRef(false);
@@ -62,6 +91,7 @@ export default function PaymentsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [modalOpen, setModalOpen] = useState(false);
+  const [editPayment, setEditPayment] = useState(null);
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(null);
@@ -153,14 +183,26 @@ export default function PaymentsPage() {
   );
 
   const openModal = (prefillCustomerId = '') => {
+    setEditPayment(null);
     setForm({ ...emptyForm(), customerId: prefillCustomerId || '' });
     setSaveError(null);
     loadCustomers();
     setModalOpen(true);
   };
 
+  const openPaymentEdit = (payment) => {
+    if (!payment?.id) return;
+    setSaveError(null);
+    loadCustomers();
+    setEditPayment(payment);
+    setForm(formFromPayment(payment));
+    setDetailPayment(null);
+    setModalOpen(true);
+  };
+
   const closeModal = () => {
     setModalOpen(false);
+    setEditPayment(null);
     setSaveError(null);
   };
 
@@ -212,6 +254,18 @@ export default function PaymentsPage() {
     const chequeLines = [];
     for (let i = 0; i < form.cheques.length; i++) {
       const line = form.cheques[i];
+      if (line.chequeDeposited) {
+        const amount = Number(line.amount) || 0;
+        if (amount <= 0) continue;
+        const entry = {
+          amount,
+          chequeDate: line.chequeDate,
+          chequeNumber: String(line.chequeNumber).trim(),
+        };
+        if (line.id) entry.id = line.id;
+        chequeLines.push(entry);
+        continue;
+      }
       const amount = Number(line.amount) || 0;
       if (amount <= 0) continue;
       if (!line.chequeDate || !/^\d{4}-\d{2}-\d{2}$/.test(line.chequeDate)) {
@@ -222,11 +276,13 @@ export default function PaymentsPage() {
         setSaveError(`Cheque ${i + 1}: enter a cheque number.`);
         return;
       }
-      chequeLines.push({
+      const entry = {
         amount,
         chequeDate: line.chequeDate,
         chequeNumber: String(line.chequeNumber).trim(),
-      });
+      };
+      if (line.id) entry.id = line.id;
+      chequeLines.push(entry);
     }
     const chequeTotal = chequeLines.reduce((s, c) => s + c.amount, 0);
     if (cash <= 0 && chequeTotal <= 0) {
@@ -234,26 +290,32 @@ export default function PaymentsPage() {
       return;
     }
     const padBill = String(parseInt(form.billNumber, 10)).padStart(3, '0');
-    if (rows.some((r) => String(r.billNumber || '') === padBill)) {
+    if (rows.some((r) => String(r.billNumber || '') === padBill && r.id !== editPayment?.id)) {
       setSaveError('This bill number is already used.');
       return;
     }
     setSaving(true);
     setSaveError(null);
     try {
-      const res = await fetch(`${apiBase}/api/payments`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          recordedBy: username,
-          customerId: form.customerId,
-          billNumber: form.billNumber,
-          cashAmount: cash,
-          cheques: chequeLines,
-          date: form.date,
-          note: form.note.trim(),
-        }),
-      });
+      const payload = {
+        customerId: form.customerId,
+        billNumber: form.billNumber,
+        cashAmount: cash,
+        cheques: chequeLines,
+        date: form.date,
+        note: form.note.trim(),
+      };
+      const isEdit = !!editPayment?.id;
+      const res = await fetch(
+        isEdit ? `${apiBase}/api/payments/${encodeURIComponent(editPayment.id)}` : `${apiBase}/api/payments`,
+        {
+          method: isEdit ? 'PATCH' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(
+            isEdit ? { ...payload, updatedBy: username } : { ...payload, recordedBy: username },
+          ),
+        },
+      );
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setSaveError(data.error || 'Save failed');
@@ -435,7 +497,7 @@ export default function PaymentsPage() {
           />
           <div className={modalPanelClass}>
             <h2 id="payments-modal-title" className="text-lg font-bold text-slate-900">
-              Record payment
+              {editPayment ? 'Edit payment' : 'Record payment'}
             </h2>
             <p className="mt-1 text-sm text-slate-500">
               Stored in payments.json. Logged in as {getUsername() || '—'}.
@@ -521,8 +583,11 @@ export default function PaymentsPage() {
                     <div className="mb-3 flex items-center justify-between gap-2">
                       <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                         Cheque {index + 1}
+                        {line.chequeDeposited ? (
+                          <span className="ml-2 normal-case text-emerald-700">(deposited)</span>
+                        ) : null}
                       </p>
-                      {form.cheques.length > 1 ? (
+                      {form.cheques.length > 1 && !line.chequeDeposited ? (
                         <button
                           type="button"
                           onClick={() => removeChequeLine(line.key)}
@@ -532,6 +597,11 @@ export default function PaymentsPage() {
                         </button>
                       ) : null}
                     </div>
+                    {line.chequeDeposited ? (
+                      <p className="mb-3 text-xs text-slate-500">
+                        This cheque is already marked as deposited and cannot be changed here.
+                      </p>
+                    ) : null}
                     <div className="grid gap-3 sm:grid-cols-2">
                       <label className="block text-sm font-medium text-slate-600">
                         Amount (LKR)
@@ -541,7 +611,8 @@ export default function PaymentsPage() {
                           step={0.01}
                           value={line.amount}
                           onChange={(e) => handleChequeChange(line.key, 'amount', e.target.value)}
-                          className="mt-1 w-full rounded-xl border-0 bg-white px-3 py-2.5 text-sm tabular-nums ring-1 ring-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/35"
+                          disabled={line.chequeDeposited}
+                          className="mt-1 w-full rounded-xl border-0 bg-white px-3 py-2.5 text-sm tabular-nums ring-1 ring-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/35 disabled:cursor-not-allowed disabled:opacity-60"
                           placeholder="0"
                         />
                       </label>
@@ -551,7 +622,8 @@ export default function PaymentsPage() {
                           type="date"
                           value={line.chequeDate}
                           onChange={(e) => handleChequeChange(line.key, 'chequeDate', e.target.value)}
-                          className="mt-1 w-full rounded-xl border-0 bg-white px-3 py-2.5 text-sm ring-1 ring-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/35"
+                          disabled={line.chequeDeposited}
+                          className="mt-1 w-full rounded-xl border-0 bg-white px-3 py-2.5 text-sm ring-1 ring-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/35 disabled:cursor-not-allowed disabled:opacity-60"
                         />
                       </label>
                     </div>
@@ -562,7 +634,8 @@ export default function PaymentsPage() {
                         autoComplete="off"
                         value={line.chequeNumber}
                         onChange={(e) => handleChequeChange(line.key, 'chequeNumber', e.target.value)}
-                        className="mt-1 w-full rounded-xl border-0 bg-white px-3 py-2.5 text-sm ring-1 ring-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/35"
+                        disabled={line.chequeDeposited}
+                        className="mt-1 w-full rounded-xl border-0 bg-white px-3 py-2.5 text-sm ring-1 ring-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/35 disabled:cursor-not-allowed disabled:opacity-60"
                         placeholder="e.g. 123456"
                       />
                     </label>
@@ -603,7 +676,7 @@ export default function PaymentsPage() {
                   disabled={saving || customers.length === 0}
                   className="rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 px-4 py-2.5 text-sm font-semibold text-white shadow-md disabled:opacity-60"
                 >
-                  {saving ? 'Saving…' : 'Save payment'}
+                  {saving ? 'Saving…' : editPayment ? 'Save changes' : 'Save payment'}
                 </button>
               </div>
             </form>
@@ -611,7 +684,21 @@ export default function PaymentsPage() {
         </div>
       ) : null}
 
-      <RowDetailModal open={!!detailPayment} row={detailPayment} variant="payment" onClose={() => setDetailPayment(null)} />
+      <RowDetailModal
+        open={!!detailPayment}
+        row={detailPayment}
+        variant="payment"
+        onClose={() => setDetailPayment(null)}
+        actions={
+          <button
+            type="button"
+            onClick={() => openPaymentEdit(detailPayment)}
+            className="mt-4 w-full rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2.5 text-sm font-semibold text-indigo-800 ring-1 ring-indigo-100 hover:bg-indigo-100"
+          >
+            Edit payment
+          </button>
+        }
+      />
     </div>
   );
 }

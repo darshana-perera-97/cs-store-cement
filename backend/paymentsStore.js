@@ -36,8 +36,12 @@ function normalizePaymentBillNumber(input) {
   return String(n).padStart(3, '0');
 }
 
-function isPaymentBillNumberTaken(payments, billNumber) {
-  return payments.some((p) => String(p.billNumber || '').trim() === billNumber);
+function isPaymentBillNumberTaken(payments, billNumber, excludeId = null) {
+  const skip = excludeId ? String(excludeId).trim() : '';
+  return payments.some((p) => {
+    if (skip && String(p.id || '').trim() === skip) return false;
+    return String(p.billNumber || '').trim() === billNumber;
+  });
 }
 
 module.exports = {

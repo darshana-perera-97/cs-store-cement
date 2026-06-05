@@ -490,6 +490,18 @@ function BankChequeDetailContent({ row }) {
           className="col-span-2 bg-violet-50 ring-violet-100"
           valueClassName="font-semibold tabular-nums text-violet-900"
         />
+        <SummaryField
+          label="Bank deposit"
+          value={row.chequeDeposited ? 'Marked as deposited' : 'Pending'}
+          className={row.chequeDeposited ? 'bg-emerald-50 ring-emerald-100' : 'bg-amber-50 ring-amber-100'}
+          valueClassName={row.chequeDeposited ? 'font-semibold text-emerald-900' : 'font-semibold text-amber-900'}
+        />
+        {row.chequeDeposited && row.chequeDepositedBy ? (
+          <SummaryField label="Marked by" value={displayText(row.chequeDepositedBy)} />
+        ) : null}
+        {row.chequeDeposited && row.chequeDepositedAt ? (
+          <SummaryField label="Marked at" value={displayText(row.chequeDepositedAt)} />
+        ) : null}
       </SummaryGrid>
     </>
   );

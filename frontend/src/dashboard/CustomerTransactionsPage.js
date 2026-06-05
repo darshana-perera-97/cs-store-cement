@@ -50,6 +50,13 @@ function money(n) {
   }).format(Number(n) || 0);
 }
 
+function formatAmount(n) {
+  return new Intl.NumberFormat(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(Number(n) || 0);
+}
+
 function todayYmdLocal() {
   const d = new Date();
   const y = d.getFullYear();
@@ -101,7 +108,7 @@ function summarizeTransactions(transactions) {
   return { totalCharged, totalPaid, counts };
 }
 
-function SummaryStat({ label, value, hint, highlight = false, valueClassName = '', action = null }) {
+function SummaryStat({ label, amount, hint, highlight = false, valueClassName = '', action = null }) {
   return (
     <div
       className={`px-4 py-3.5 sm:px-5 ${
@@ -109,11 +116,14 @@ function SummaryStat({ label, value, hint, highlight = false, valueClassName = '
       }`}
     >
       <div className="flex items-start justify-between gap-2">
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          {label}
+          <span className="ml-1.5 text-[10px] font-semibold normal-case text-slate-400">LKR</span>
+        </p>
         {action}
       </div>
       <p className={`mt-1 text-lg font-bold tabular-nums text-slate-900 sm:text-xl ${valueClassName}`}>
-        {value}
+        {formatAmount(amount)}
       </p>
       {hint ? <p className="mt-1 text-xs text-slate-500">{hint}</p> : null}
     </div>
@@ -399,7 +409,7 @@ export default function CustomerTransactionsPage() {
           >
             <SummaryStat
               label="Amount to pay"
-              value={money(amountToPay)}
+              amount={amountToPay}
               highlight
               valueClassName={overdue && amountToPay > 0 ? 'text-rose-800' : ''}
               hint={overdue && amountToPay > 0 ? 'Collect as soon as possible' : null}
@@ -407,39 +417,30 @@ export default function CustomerTransactionsPage() {
             {overpayment > 0 ? (
               <SummaryStat
                 label="Overpayment"
-                value={money(overpayment)}
+                amount={overpayment}
                 valueClassName="text-emerald-800"
                 hint="Customer paid more than owed"
               />
             ) : null}
             <SummaryStat
               label="Opening balance"
-              value={money(customer.pastBill)}
+              amount={customer.pastBill}
               hint={
                 customer.pastBillUpdatedAt
                   ? `Updated ${formatDisplayDate(String(customer.pastBillUpdatedAt).slice(0, 10))}${
                       customer.pastBillUpdatedBy ? ` by ${customer.pastBillUpdatedBy}` : ''
                     }`
-                  : 'Starting amount on account'
-              }
-              action={
-                <button
-                  type="button"
-                  onClick={openCustomerEdit}
-                  className="shrink-0 rounded-lg px-2 py-0.5 text-xs font-semibold text-indigo-600 hover:bg-indigo-50 hover:text-indigo-800"
-                >
-                  Edit
-                </button>
+                  : 'Starting amount'
               }
             />
             <SummaryStat
               label="Total charged"
-              value={money(summary.totalCharged)}
+              amount={summary.totalCharged}
               hint="Opening + credit sales"
             />
             <SummaryStat
               label="Total paid"
-              value={money(summary.totalPaid)}
+              amount={summary.totalPaid}
               valueClassName="text-emerald-800"
               hint="All recorded payments"
             />

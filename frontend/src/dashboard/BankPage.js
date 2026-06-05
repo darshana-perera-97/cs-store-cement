@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { getApiBase } from '../apiBase';
+import { getUsername } from '../auth';
 import {
   TableFiltersBar,
+  TablePaginationBar,
   filterControl,
   inDateRange,
   scrollTableWrap,
   stickyThead,
+  useTablePagination,
 } from './tableToolbar';
 import RowDetailModal, { detailRowAttrs } from './RowDetailModal';
-import { buildChequeTableRows, chequePortion } from './paymentCheques';
+import { buildChequeTableRows, chequePortion, depositQueueRowKey } from './paymentCheques';
 
 const apiBase = getApiBase();
 
@@ -51,12 +54,31 @@ function buildDailyRows(payments) {
   return [...map.values()].sort((a, b) => b.date.localeCompare(a.date));
 }
 
+function formatDepositedAt(iso) {
+  const raw = String(iso ?? '').trim();
+  if (!raw) return '';
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return raw.slice(0, 10);
+  return d.toLocaleString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
 function buildChequeRows(payments) {
-  const rows = buildChequeTableRows(payments, (p, _c, flat) => ({
-    id: flat.rowKey,
+  const rows = buildChequeTableRows(payments, (p, c, flat) => ({
+    id: p.id,
+    chequeId: c.id,
+    rowKey: flat.rowKey,
     chequeDate: flat.chequeDate,
     amount: flat.amount,
     chequeNumber: flat.chequeNumber,
+    chequeDeposited: flat.chequeDeposited,
+    chequeDepositedAt: flat.chequeDepositedAt,
+    chequeDepositedBy: flat.chequeDepositedBy,
     customerName: String(p.customerName ?? '').trim() || '—',
     billNumber: p.billNumber != null ? String(p.billNumber) : '—',
     paymentDate: String(p.date ?? '').slice(0, 10) || '—',
@@ -84,6 +106,9 @@ export default function BankPage() {
   const [dateTo, setDateTo] = useState('');
   const [detailDaily, setDetailDaily] = useState(null);
   const [detailCheque, setDetailCheque] = useState(null);
+  const [markingChequeId, setMarkingChequeId] = useState(null);
+  const [markErr, setMarkErr] = useState(null);
+  const [chequeFilter, setChequeFilter] = useState('all');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -105,6 +130,43 @@ export default function BankPage() {
     load();
   }, [load]);
 
+  const handleMarkChequeDeposited = useCallback(
+    async (row) => {
+      const username = getUsername();
+      if (!username) {
+        setMarkErr('Sign in with a username to record deposits.');
+        return;
+      }
+      const rowKey = depositQueueRowKey(row);
+      setMarkErr(null);
+      setMarkingChequeId(rowKey);
+      try {
+        const res = await fetch(
+          `${apiBase}/api/payments/${encodeURIComponent(row.id)}/cheque-deposited`,
+          {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              recordedBy: username,
+              ...(row.chequeId && row.chequeId !== '_legacy' ? { chequeId: row.chequeId } : {}),
+            }),
+          },
+        );
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setMarkErr(data.error || 'Update failed');
+          return;
+        }
+        await load();
+      } catch {
+        setMarkErr('Could not reach server');
+      } finally {
+        setMarkingChequeId(null);
+      }
+    },
+    [load],
+  );
+
   const dailyAll = useMemo(() => buildDailyRows(payments), [payments]);
   const dailyRows = useMemo(
     () => dailyAll.filter((r) => inDateRange(r.date, dateFrom, dateTo)),
@@ -112,13 +174,35 @@ export default function BankPage() {
   );
 
   const chequeAll = useMemo(() => buildChequeRows(payments), [payments]);
-  const chequeRows = useMemo(
-    () =>
-      chequeAll.filter((r) => {
-        if (!inDateRange(r.chequeDate, dateFrom, dateTo)) return false;
-        return true;
-      }),
+  const chequeInRange = useMemo(
+    () => chequeAll.filter((r) => inDateRange(r.chequeDate, dateFrom, dateTo)),
     [chequeAll, dateFrom, dateTo],
+  );
+  const chequeRows = useMemo(() => {
+    if (chequeFilter === 'pending') return chequeInRange.filter((r) => !r.chequeDeposited);
+    if (chequeFilter === 'deposited') return chequeInRange.filter((r) => r.chequeDeposited);
+    return chequeInRange;
+  }, [chequeInRange, chequeFilter]);
+
+  const chequePendingCount = useMemo(
+    () => chequeInRange.filter((r) => !r.chequeDeposited).length,
+    [chequeInRange],
+  );
+  const chequeDepositedCount = useMemo(
+    () => chequeInRange.filter((r) => r.chequeDeposited).length,
+    [chequeInRange],
+  );
+
+  const dailyPagination = useTablePagination(dailyRows.length, [dateFrom, dateTo]);
+  const pagedDailyRows = useMemo(
+    () => dailyRows.slice(dailyPagination.offset, dailyPagination.offset + dailyPagination.pageSize),
+    [dailyRows, dailyPagination.offset, dailyPagination.pageSize],
+  );
+
+  const chequePagination = useTablePagination(chequeRows.length, [dateFrom, dateTo, chequeFilter]);
+  const pagedChequeRows = useMemo(
+    () => chequeRows.slice(chequePagination.offset, chequePagination.offset + chequePagination.pageSize),
+    [chequeRows, chequePagination.offset, chequePagination.pageSize],
   );
 
   const dailyTotals = useMemo(() => {
@@ -136,15 +220,19 @@ export default function BankPage() {
     () => chequeRows.reduce((s, r) => s + r.amount, 0),
     [chequeRows],
   );
+  const chequePendingTotal = useMemo(
+    () => chequeInRange.filter((r) => !r.chequeDeposited).reduce((s, r) => s + r.amount, 0),
+    [chequeInRange],
+  );
+  const chequeDepositedTotal = useMemo(
+    () => chequeInRange.filter((r) => r.chequeDeposited).reduce((s, r) => s + r.amount, 0),
+    [chequeInRange],
+  );
 
   return (
     <div className="space-y-5">
       <div className="rounded-[20px] bg-white p-5 shadow-lg shadow-slate-200/40 ring-1 ring-slate-100 sm:p-6">
         <h1 className="text-lg font-bold text-slate-900">Bank</h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Daily cash taken in is treated as deposited to the bank. Total income is cash plus cheques (same as customer
-          settlement). Use the filters to narrow dates; the Cheque tab lists cheques in <span className="font-medium">cheque date</span> order.
-        </p>
       </div>
 
       <TableFiltersBar
@@ -153,8 +241,8 @@ export default function BankPage() {
             ? !loading && dailyRows.length > 0
               ? `${dailyRows.length} day${dailyRows.length === 1 ? '' : 's'} in range`
               : null
-            : !loading && chequeRows.length > 0
-              ? `${chequeRows.length} cheque${chequeRows.length === 1 ? '' : 's'} in range`
+            : !loading && chequeInRange.length > 0
+              ? `${chequePendingCount} pending · ${chequeDepositedCount} deposited`
               : null
         }
       >
@@ -227,7 +315,7 @@ export default function BankPage() {
                     </td>
                   </tr>
                 ) : (
-                  dailyRows.map((r) => (
+                  pagedDailyRows.map((r) => (
                     <tr
                       key={r.date}
                       {...detailRowAttrs(() => setDetailDaily(r), 'hover:bg-slate-50/80')}
@@ -259,51 +347,149 @@ export default function BankPage() {
               ) : null}
             </table>
           </div>
+          {!loading && dailyRows.length > 0 ? (
+            <TablePaginationBar
+              page={dailyPagination.page}
+              totalPages={dailyPagination.totalPages}
+              pageSize={dailyPagination.pageSize}
+              totalCount={dailyRows.length}
+              onPageChange={dailyPagination.setPage}
+              onPageSizeChange={dailyPagination.setPageSize}
+            />
+          ) : null}
         </div>
       ) : (
         <div className="space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            {[
+              { key: 'all', label: 'All' },
+              { key: 'pending', label: 'Pending' },
+              { key: 'deposited', label: 'Deposited' },
+            ].map(({ key, label }) => (
+              <button
+                key={key}
+                type="button"
+                className={`${tabBtn} ${chequeFilter === key ? tabActive : tabIdle}`}
+                onClick={() => setChequeFilter(key)}
+              >
+                {label}
+                {!loading && chequeInRange.length > 0 ? (
+                  <span className="ml-1.5 tabular-nums text-slate-400">
+                    (
+                    {key === 'all'
+                      ? chequeInRange.length
+                      : key === 'pending'
+                        ? chequePendingCount
+                        : chequeDepositedCount}
+                    )
+                  </span>
+                ) : null}
+              </button>
+            ))}
+          </div>
+
+          {!loading && chequeInRange.length > 0 ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="rounded-xl bg-amber-50 p-4 ring-1 ring-amber-100">
+                <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">Pending deposit</p>
+                <p className="mt-1 text-xl font-bold tabular-nums text-amber-950">{money(chequePendingTotal)}</p>
+                <p className="mt-0.5 text-xs text-amber-700">
+                  {chequePendingCount} cheque{chequePendingCount === 1 ? '' : 's'} awaiting bank
+                </p>
+              </div>
+              <div className="rounded-xl bg-emerald-50 p-4 ring-1 ring-emerald-100">
+                <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">Already deposited</p>
+                <p className="mt-1 text-xl font-bold tabular-nums text-emerald-950">{money(chequeDepositedTotal)}</p>
+                <p className="mt-0.5 text-xs text-emerald-700">
+                  {chequeDepositedCount} cheque{chequeDepositedCount === 1 ? '' : 's'} marked at bank
+                </p>
+              </div>
+            </div>
+          ) : null}
+
+          {markErr ? (
+            <p className="rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-900 ring-1 ring-amber-100" role="alert">
+              {markErr}
+            </p>
+          ) : null}
           <div className={scrollTableWrap}>
-            <table className="w-full min-w-[880px] border-separate border-spacing-0 text-left text-sm">
+            <table className="w-full min-w-[560px] border-separate border-spacing-0 text-left text-sm">
               <thead className={stickyThead}>
                 <tr className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                   <th className="whitespace-nowrap px-4 py-3">Cheque date</th>
                   <th className="whitespace-nowrap px-4 py-3 text-right">Amount</th>
                   <th className="whitespace-nowrap px-4 py-3 font-mono">Cheque #</th>
-                  <th className="px-4 py-3">Customer</th>
-                  <th className="whitespace-nowrap px-4 py-3 font-mono">Bill #</th>
-                  <th className="whitespace-nowrap px-4 py-3">Payment date</th>
+                  <th className="whitespace-nowrap px-4 py-3 text-center">Deposit</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-slate-800">
                 {loading ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-10 text-center text-slate-500">
+                    <td colSpan={4} className="px-4 py-10 text-center text-slate-500">
                       Loading…
                     </td>
                   </tr>
                 ) : chequeRows.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-10 text-center text-slate-500">
-                      No cheques in this range.
+                    <td colSpan={4} className="px-4 py-10 text-center text-slate-500">
+                      {chequeInRange.length === 0
+                        ? 'No cheques in this range.'
+                        : chequeFilter === 'pending'
+                          ? 'No pending cheques in this range.'
+                          : chequeFilter === 'deposited'
+                            ? 'No deposited cheques in this range.'
+                            : 'No cheques in this range.'}
                     </td>
                   </tr>
                 ) : (
-                  chequeRows.map((r) => (
-                    <tr
-                      key={r.id}
-                      {...detailRowAttrs(() => setDetailCheque(r), 'hover:bg-slate-50/80')}
-                      aria-label={`Cheque ${r.chequeNumber || r.id || ''}`}
-                    >
-                      <td className="whitespace-nowrap px-4 py-3 tabular-nums">{r.chequeDate}</td>
-                      <td className="whitespace-nowrap px-4 py-3 text-right font-semibold tabular-nums text-violet-800">
-                        {money(r.amount)}
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-3 font-mono text-sm">{r.chequeNumber}</td>
-                      <td className="px-4 py-3 font-medium text-slate-900">{r.customerName}</td>
-                      <td className="whitespace-nowrap px-4 py-3 font-mono text-sm tabular-nums">{r.billNumber}</td>
-                      <td className="whitespace-nowrap px-4 py-3 tabular-nums text-slate-600">{r.paymentDate}</td>
-                    </tr>
-                  ))
+                  pagedChequeRows.map((r) => {
+                    const rowKey = depositQueueRowKey(r);
+                    const depositedLabel = r.chequeDepositedBy || formatDepositedAt(r.chequeDepositedAt);
+                    return (
+                      <tr
+                        key={rowKey}
+                        {...detailRowAttrs(
+                          () => setDetailCheque(r),
+                          r.chequeDeposited ? 'bg-emerald-50/40 hover:bg-emerald-50/70' : 'hover:bg-slate-50/80',
+                        )}
+                        aria-label={`Cheque ${r.chequeNumber || rowKey}`}
+                      >
+                        <td className="whitespace-nowrap px-4 py-3 tabular-nums">{r.chequeDate}</td>
+                        <td className="whitespace-nowrap px-4 py-3 text-right font-semibold tabular-nums text-violet-800">
+                          {money(r.amount)}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 font-mono text-sm">{r.chequeNumber}</td>
+                        <td className="px-4 py-3 text-center">
+                          {r.chequeDeposited ? (
+                            <div className="inline-flex flex-col items-center gap-0.5">
+                              <span className="inline-flex rounded-lg bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-900 ring-1 ring-emerald-200">
+                                Deposited
+                              </span>
+                              {depositedLabel ? (
+                                <span className="max-w-[140px] text-[10px] leading-tight text-emerald-800">
+                                  {r.chequeDepositedBy ? `by ${r.chequeDepositedBy}` : ''}
+                                  {r.chequeDepositedBy && r.chequeDepositedAt ? ' · ' : ''}
+                                  {r.chequeDepositedAt ? formatDepositedAt(r.chequeDepositedAt) : ''}
+                                </span>
+                              ) : null}
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={!!markingChequeId}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleMarkChequeDeposited(r);
+                              }}
+                              className="rounded-xl bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {markingChequeId === rowKey ? 'Saving…' : 'Mark deposited'}
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
               {!loading && chequeRows.length > 0 ? (
@@ -311,12 +497,22 @@ export default function BankPage() {
                   <tr className="border-t border-slate-200 bg-slate-50/90 text-sm font-semibold text-slate-900">
                     <td className="px-4 py-3">Range total</td>
                     <td className="px-4 py-3 text-right tabular-nums">{money(chequeTotal)}</td>
-                    <td className="px-4 py-3" colSpan={4} />
+                    <td className="px-4 py-3" colSpan={2} />
                   </tr>
                 </tfoot>
               ) : null}
             </table>
           </div>
+          {!loading && chequeRows.length > 0 ? (
+            <TablePaginationBar
+              page={chequePagination.page}
+              totalPages={chequePagination.totalPages}
+              pageSize={chequePagination.pageSize}
+              totalCount={chequeRows.length}
+              onPageChange={chequePagination.setPage}
+              onPageSizeChange={chequePagination.setPageSize}
+            />
+          ) : null}
         </div>
       )}
 

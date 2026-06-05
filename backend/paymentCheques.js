@@ -74,7 +74,12 @@ function parseChequesFromBody(body) {
       if (!chequeNumber) {
         return { cheques: [], error: `Cheque ${i + 1}: cheque number is required.` };
       }
-      parsed.push({ amount, chequeDate, chequeNumber });
+      parsed.push({
+        id: String(raw.id ?? '').trim(),
+        amount,
+        chequeDate,
+        chequeNumber,
+      });
     }
     return { cheques: parsed };
   }
@@ -102,6 +107,56 @@ function buildChequesForStorage(parsedCheques) {
     chequeDepositedAt: '',
     chequeDepositedBy: '',
   }));
+}
+
+/**
+ * Merge edited cheque lines with existing payment data, preserving deposit status.
+ * @returns {{ cheques: object[], error?: string }}
+ */
+function buildChequesForUpdate(parsedCheques, existingPayment) {
+  const existing = getPaymentCheques(existingPayment);
+  const byId = new Map(existing.map((c) => [c.id, c]));
+  const stored = [];
+
+  for (const parsed of parsedCheques) {
+    let id = String(parsed.id ?? '').trim();
+    let prev = id && byId.has(id) ? byId.get(id) : null;
+    if (!prev && !id && existing.length === 1) {
+      prev = existing[0];
+      id = prev.id;
+    }
+    if (prev?.chequeDeposited) {
+      stored.push({
+        id: prev.id,
+        amount: prev.amount,
+        chequeDate: prev.chequeDate,
+        chequeNumber: prev.chequeNumber,
+        chequeDeposited: true,
+        chequeDepositedAt: prev.chequeDepositedAt,
+        chequeDepositedBy: prev.chequeDepositedBy,
+      });
+      byId.delete(prev.id);
+      continue;
+    }
+    stored.push({
+      id: prev?.id || newChequeId(),
+      amount: parsed.amount,
+      chequeDate: parsed.chequeDate,
+      chequeNumber: parsed.chequeNumber,
+      chequeDeposited: false,
+      chequeDepositedAt: '',
+      chequeDepositedBy: '',
+    });
+    if (prev?.id) byId.delete(prev.id);
+  }
+
+  for (const ch of byId.values()) {
+    if (ch.chequeDeposited) {
+      return { cheques: [], error: 'Cannot remove a cheque that is already marked as deposited.' };
+    }
+  }
+
+  return { cheques: stored };
 }
 
 /** Mirror first cheque + total on payment for older clients. */
@@ -151,6 +206,7 @@ module.exports = {
   sumChequeAmounts,
   parseChequesFromBody,
   buildChequesForStorage,
+  buildChequesForUpdate,
   applyLegacyChequeFields,
   chequeDepositQueueItem,
 };

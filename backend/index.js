@@ -33,6 +33,7 @@ const {
   sumChequeAmounts,
   parseChequesFromBody,
   buildChequesForStorage,
+  buildChequesForUpdate,
   applyLegacyChequeFields,
   chequeDepositQueueItem,
 } = require('./paymentCheques');
@@ -243,6 +244,20 @@ async function refreshCustomerBalancesForBillNames(bills, paymentsList, ...nameK
   let dirty = false;
   for (const c of customers) {
     if (keys.has(normalizeCustomerName(c.name))) {
+      c.remainingAmount = computeRemainingAmount(c, bills, paymentsList);
+      dirty = true;
+    }
+  }
+  if (dirty) await writeCustomers(customers);
+}
+
+async function refreshCustomerBalancesForCustomerIds(bills, paymentsList, ...customerIds) {
+  const ids = new Set(customerIds.map((id) => String(id ?? '').trim()).filter(Boolean));
+  if (ids.size === 0) return;
+  const customers = await readCustomers();
+  let dirty = false;
+  for (const c of customers) {
+    if (ids.has(c.id)) {
       c.remainingAmount = computeRemainingAmount(c, bills, paymentsList);
       dirty = true;
     }
@@ -948,6 +963,110 @@ app.post('/api/payments', async (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'Failed to save payment' });
+  }
+});
+
+app.patch('/api/payments/:id', async (req, res) => {
+  try {
+    const id = String(req.params.id ?? '').trim();
+    if (!id) {
+      return res.status(400).json({ error: 'Payment id is required' });
+    }
+    const body = req.body || {};
+    const updatedBy = String(body.updatedBy ?? body.recordedBy ?? '').trim();
+    if (!updatedBy) {
+      return res.status(400).json({ error: 'updatedBy (username) is required' });
+    }
+    const customerId = String(body.customerId ?? '').trim();
+    if (!customerId) {
+      return res.status(400).json({ error: 'customerId is required' });
+    }
+
+    let cashAmount = toNonNegMoney(body.cashAmount ?? 0);
+    const parsedCheques = parseChequesFromBody(body);
+    if (parsedCheques.error) {
+      return res.status(400).json({ error: parsedCheques.error });
+    }
+    let chequeAmount = sumChequeAmounts(
+      parsedCheques.cheques.map((c) => ({ amount: c.amount })),
+    );
+    if (cashAmount === 0 && chequeAmount === 0 && body.amount != null) {
+      cashAmount = toNonNegMoney(body.amount);
+    }
+    const amount = Math.round((cashAmount + chequeAmount) * 100) / 100;
+    if (amount <= 0) {
+      return res.status(400).json({ error: 'Enter a cash amount and/or cheque amount so the total is greater than 0.' });
+    }
+
+    let date = String(body.date ?? '').trim();
+    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return res.status(400).json({ error: 'date must be YYYY-MM-DD' });
+    }
+    const note = String(body.note ?? '').trim();
+
+    const billNumber = normalizePaymentBillNumber(body.billNumber);
+    if (!billNumber) {
+      return res.status(400).json({
+        error: 'billNumber is required (1–3 digits, stored as 001–999)',
+      });
+    }
+
+    const customers = await readCustomers();
+    const cust = customers.find((c) => c.id === customerId);
+    if (!cust) {
+      return res.status(400).json({ error: 'Customer not found' });
+    }
+
+    const payments = await readPayments();
+    const idx = payments.findIndex((p) => p.id === id);
+    if (idx < 0) {
+      return res.status(404).json({ error: 'Payment not found' });
+    }
+    if (isPaymentBillNumberTaken(payments, billNumber, id)) {
+      return res.status(400).json({ error: 'This bill number is already used for another payment.' });
+    }
+
+    const existing = payments[idx];
+    const chequeUpdate = buildChequesForUpdate(parsedCheques.cheques, existing);
+    if (chequeUpdate.error) {
+      return res.status(400).json({ error: chequeUpdate.error });
+    }
+    const storedCheques = chequeUpdate.cheques;
+
+    const row = {
+      ...existing,
+      date,
+      customerId: cust.id,
+      customerName: cust.name,
+      billNumber,
+      amount,
+      cashAmount,
+      note,
+      updatedBy,
+      updatedAt: new Date().toISOString(),
+    };
+    if (storedCheques.length > 0) {
+      row.cheques = storedCheques;
+    } else {
+      delete row.cheques;
+    }
+    applyLegacyChequeFields(row, storedCheques);
+
+    payments[idx] = row;
+    await writePayments(payments);
+
+    const billsList = await readBills();
+    await refreshCustomerBalancesForCustomerIds(
+      billsList,
+      payments,
+      existing.customerId,
+      cust.id,
+    );
+
+    res.json(row);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Failed to update payment' });
   }
 });
 

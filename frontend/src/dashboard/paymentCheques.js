@@ -9,6 +9,8 @@ export function getPaymentCheques(p) {
         chequeDate: String(c?.chequeDate ?? '').slice(0, 10),
         chequeNumber: String(c?.chequeNumber ?? '').trim(),
         chequeDeposited: !!c?.chequeDeposited,
+        chequeDepositedAt: String(c?.chequeDepositedAt ?? '').trim(),
+        chequeDepositedBy: String(c?.chequeDepositedBy ?? '').trim(),
       }))
       .filter((c) => c.amount > 0);
   }
@@ -21,6 +23,8 @@ export function getPaymentCheques(p) {
       chequeDate: String(p.chequeDate || p.date || '').slice(0, 10),
       chequeNumber: String(p.chequeNumber ?? '').trim(),
       chequeDeposited: !!p.chequeDeposited,
+      chequeDepositedAt: String(p.chequeDepositedAt ?? '').trim(),
+      chequeDepositedBy: String(p.chequeDepositedBy ?? '').trim(),
     },
   ];
 }
@@ -44,6 +48,8 @@ export function buildChequeTableRows(payments, mapRow) {
         chequeDate: c.chequeDate,
         chequeNumber: c.chequeNumber || '—',
         chequeDeposited: c.chequeDeposited,
+        chequeDepositedAt: c.chequeDepositedAt,
+        chequeDepositedBy: c.chequeDepositedBy,
       });
       if (row != null) rows.push(row);
     }

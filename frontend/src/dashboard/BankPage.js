@@ -6,6 +6,7 @@ import {
   TablePaginationBar,
   filterControl,
   inDateRange,
+  rowMatchesQuery,
   scrollTableWrap,
   stickyThead,
   useTablePagination,
@@ -109,6 +110,7 @@ export default function BankPage() {
   const [markingChequeId, setMarkingChequeId] = useState(null);
   const [markErr, setMarkErr] = useState(null);
   const [chequeFilter, setChequeFilter] = useState('all');
+  const [search, setSearch] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -179,10 +181,25 @@ export default function BankPage() {
     [chequeAll, dateFrom, dateTo],
   );
   const chequeRows = useMemo(() => {
-    if (chequeFilter === 'pending') return chequeInRange.filter((r) => !r.chequeDeposited);
-    if (chequeFilter === 'deposited') return chequeInRange.filter((r) => r.chequeDeposited);
-    return chequeInRange;
-  }, [chequeInRange, chequeFilter]);
+    let rows = chequeInRange;
+    if (chequeFilter === 'pending') rows = rows.filter((r) => !r.chequeDeposited);
+    else if (chequeFilter === 'deposited') rows = rows.filter((r) => r.chequeDeposited);
+    if (!search.trim()) return rows;
+    return rows.filter((r) =>
+      rowMatchesQuery(search, [
+        r.chequeDate,
+        r.paymentDate,
+        r.chequeNumber,
+        r.customerName,
+        r.billNumber,
+        r.chequeDepositedBy,
+        r.chequeDepositedAt,
+        formatDepositedAt(r.chequeDepositedAt),
+        String(r.amount),
+        r.chequeDeposited ? 'deposited' : 'pending',
+      ]),
+    );
+  }, [chequeInRange, chequeFilter, search]);
 
   const chequePendingCount = useMemo(
     () => chequeInRange.filter((r) => !r.chequeDeposited).length,
@@ -199,7 +216,7 @@ export default function BankPage() {
     [dailyRows, dailyPagination.offset, dailyPagination.pageSize],
   );
 
-  const chequePagination = useTablePagination(chequeRows.length, [dateFrom, dateTo, chequeFilter]);
+  const chequePagination = useTablePagination(chequeRows.length, [dateFrom, dateTo, chequeFilter, search]);
   const pagedChequeRows = useMemo(
     () => chequeRows.slice(chequePagination.offset, chequePagination.offset + chequePagination.pageSize),
     [chequeRows, chequePagination.offset, chequePagination.pageSize],
@@ -242,7 +259,9 @@ export default function BankPage() {
               ? `${dailyRows.length} day${dailyRows.length === 1 ? '' : 's'} in range`
               : null
             : !loading && chequeInRange.length > 0
-              ? `${chequePendingCount} pending · ${chequeDepositedCount} deposited`
+              ? search.trim()
+                ? `${chequeRows.length} of ${chequeInRange.length} cheques · ${chequePendingCount} pending · ${chequeDepositedCount} deposited`
+                : `${chequePendingCount} pending · ${chequeDepositedCount} deposited`
               : null
         }
       >
@@ -264,6 +283,18 @@ export default function BankPage() {
             className={filterControl}
           />
         </label>
+        {tab === 'cheque' ? (
+          <label className="block min-w-[200px] flex-1 text-sm font-medium text-slate-600">
+            Search
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Cheque #, customer, bill #, amount…"
+              className={filterControl}
+            />
+          </label>
+        ) : null}
       </TableFiltersBar>
 
       {error ? (
@@ -432,13 +463,15 @@ export default function BankPage() {
                 ) : chequeRows.length === 0 ? (
                   <tr>
                     <td colSpan={4} className="px-4 py-10 text-center text-slate-500">
-                      {chequeInRange.length === 0
-                        ? 'No cheques in this range.'
-                        : chequeFilter === 'pending'
-                          ? 'No pending cheques in this range.'
-                          : chequeFilter === 'deposited'
-                            ? 'No deposited cheques in this range.'
-                            : 'No cheques in this range.'}
+                      {search.trim()
+                        ? 'No cheques match your search or filters.'
+                        : chequeInRange.length === 0
+                          ? 'No cheques in this range.'
+                          : chequeFilter === 'pending'
+                            ? 'No pending cheques in this range.'
+                            : chequeFilter === 'deposited'
+                              ? 'No deposited cheques in this range.'
+                              : 'No cheques in this range.'}
                     </td>
                   </tr>
                 ) : (

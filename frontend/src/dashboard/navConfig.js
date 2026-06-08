@@ -49,4 +49,9 @@ export const DASHBOARD_NAV = [
     label: 'Users',
     icon: 'user',
   },
+  {
+    to: '/dashboard/cash-out',
+    label: 'Cash Out',
+    icon: 'cash-out',
+  },
 ];

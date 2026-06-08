@@ -11,7 +11,7 @@ import {
   scrollTableWrap,
   stickyTheadTransparent,
   useTablePagination,
-  modalPanelClass2xl,
+  modalPanelClass4xl,
 } from './tableToolbar';
 import RowDetailModal, { detailRowAttrs } from './RowDetailModal';
 
@@ -27,18 +27,22 @@ const emptyForm = () => ({
   tokyoCost: '',
   tokyoInvoice: '',
   tokyoCheque: '',
+  tokyoConvertingDate: '',
   samudraBags: '',
   samudraCost: '',
   samudraInvoice: '',
   samudraCheque: '',
+  samudraConvertingDate: '',
   atlasBags: '',
   atlasCost: '',
   atlasInvoice: '',
   atlasCheque: '',
+  atlasConvertingDate: '',
   nipponBags: '',
   nipponCost: '',
   nipponInvoice: '',
   nipponCheque: '',
+  nipponConvertingDate: '',
 });
 
 /** Next ID after the highest existing STK-nnnn (or plain number); defaults to STK-0001. */
@@ -195,7 +199,7 @@ export default function LoadsPage() {
     }
     if (missingRefs.length > 0) {
       setSaveError(
-        `When bags are 1 or more for a brand, invoice and cheque numbers are required (letters and numbers allowed). Missing: ${missingRefs.join(', ')}.`,
+        `When bags are 1 or more for a brand, invoice and cheque numbers are required. Missing: ${missingRefs.join(', ')}.`,
       );
       return;
     }
@@ -214,18 +218,22 @@ export default function LoadsPage() {
           tokyoCost: form.tokyoCost,
           tokyoInvoice: form.tokyoInvoice,
           tokyoCheque: form.tokyoCheque,
+          tokyoConvertingDate: form.tokyoConvertingDate,
           samudraBags: form.samudraBags,
           samudraCost: form.samudraCost,
           samudraInvoice: form.samudraInvoice,
           samudraCheque: form.samudraCheque,
+          samudraConvertingDate: form.samudraConvertingDate,
           atlasBags: form.atlasBags,
           atlasCost: form.atlasCost,
           atlasInvoice: form.atlasInvoice,
           atlasCheque: form.atlasCheque,
+          atlasConvertingDate: form.atlasConvertingDate,
           nipponBags: form.nipponBags,
           nipponCost: form.nipponCost,
           nipponInvoice: form.nipponInvoice,
           nipponCheque: form.nipponCheque,
+          nipponConvertingDate: form.nipponConvertingDate,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -465,7 +473,7 @@ export default function LoadsPage() {
       {modalOpen ? (
         <div className="fixed inset-0 z-[100] flex items-end justify-center p-4 sm:items-center" role="dialog" aria-modal="true" aria-labelledby="loads-modal-title">
           <button type="button" className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" aria-label="Close" onClick={closeModal} />
-          <div className={modalPanelClass2xl}>
+          <div className={modalPanelClass4xl}>
             <h2 id="loads-modal-title" className="text-lg font-bold text-slate-900">
               Add a stock load
             </h2>
@@ -522,7 +530,7 @@ export default function LoadsPage() {
                   Cement bags, cost, invoice & cheque (per brand)
                 </p>
                 <p className="mt-1 text-xs text-slate-500">
-                  If bags are <span className="font-medium text-slate-600">1 or more</span> for a brand, enter both invoice and cheque references for that brand. Letters, numbers, and symbols are allowed (e.g. INV-12A, CHQ/B458).
+                  If bags are <span className="font-medium text-slate-600">1 or more</span> for a brand, enter invoice and cheque number for that brand. Converting date is optional — if left blank, the load date is used.
                 </p>
                 <div className="mt-3 space-y-4">
                   {BRANDS.map((b) => {
@@ -534,7 +542,7 @@ export default function LoadsPage() {
                       className="rounded-lg border border-slate-100 bg-white/90 p-3 shadow-sm ring-1 ring-slate-100/80"
                     >
                       <p className="mb-2 text-sm font-semibold text-slate-800">{b.label}</p>
-                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-5">
                         <label className="text-xs text-slate-500">
                           Bags
                           <input
@@ -581,6 +589,15 @@ export default function LoadsPage() {
                             autoComplete="off"
                             spellCheck={false}
                             aria-required={needRefs}
+                          />
+                        </label>
+                        <label className={`block text-xs ${needRefs ? 'font-medium text-slate-700' : 'text-slate-500'}`}>
+                          Converting date
+                          <input
+                            type="date"
+                            value={form[`${b.key}ConvertingDate`]}
+                            onChange={(e) => handleFormChange(`${b.key}ConvertingDate`, e.target.value)}
+                            className={`mt-0.5 w-full rounded-lg border-0 bg-slate-50 px-2 py-2 text-sm ring-1 ${refRing} focus:outline-none focus:ring-2 focus:ring-indigo-500/35`}
                           />
                         </label>
                       </div>

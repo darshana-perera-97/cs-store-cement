@@ -144,7 +144,7 @@ function LoadDetailContent({ row }) {
           const bags = Number(row[`${b.key}Bags`]) || 0;
           return (
             <BrandSectionShell key={b.key} brand={b} active={active} emptyText="No stock on this load">
-              <dl className="grid grid-cols-2 gap-px bg-slate-100 sm:grid-cols-4">
+              <dl className="grid grid-cols-2 gap-px bg-slate-100 sm:grid-cols-5">
                 <BrandFieldCell brand={b} lead label="Bags" value={bags} valueClassName="tabular-nums font-semibold" />
                 <BrandFieldCell
                   brand={b}
@@ -154,6 +154,12 @@ function LoadDetailContent({ row }) {
                 />
                 <BrandFieldCell brand={b} label="Invoice" value={displayText(row[`${b.key}Invoice`])} valueClassName="text-slate-800" />
                 <BrandFieldCell brand={b} label="Cheque" value={displayText(row[`${b.key}Cheque`])} valueClassName="text-slate-800" />
+                <BrandFieldCell
+                  brand={b}
+                  label="Converting date"
+                  value={displayText(row[`${b.key}ConvertingDate`] || row.date)}
+                  valueClassName="tabular-nums text-slate-800"
+                />
               </dl>
             </BrandSectionShell>
           );
@@ -255,6 +261,10 @@ function CustomerDetailContent({ row }) {
           label="Due date"
           value={displayText(row.dueDate)}
           valueClassName={overdue ? 'font-semibold text-rose-800' : ''}
+        />
+        <SummaryField
+          label="Bill overdue days"
+          value={row.overdueDays != null ? String(row.overdueDays) : '14'}
         />
         <SummaryField label="Added by" value={displayText(row.addedBy)} />
         <SummaryField label="Opening balance" value={formatMoney(row.pastBill)} className="col-span-2" />

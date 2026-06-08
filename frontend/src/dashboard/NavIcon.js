@@ -80,6 +80,16 @@ export function NavIcon({ name, active }) {
           <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
         </svg>
       );
+    case 'cash-out':
+      return (
+        <svg className={c} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5} aria-hidden>
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M2.25 18.75h19.5M4.5 15.75h15M12 3.75v12m0 0l-3.75-3.75M12 15.75l3.75-3.75"
+          />
+        </svg>
+      );
     default:
       return null;
   }

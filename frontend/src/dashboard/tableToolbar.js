@@ -46,6 +46,9 @@ export const modalPanelClassMd =
 export const modalPanelClass2xl =
   'relative z-10 min-h-0 w-full max-h-[min(90vh,calc(100dvh-3rem))] max-w-2xl overflow-y-auto overscroll-contain rounded-2xl bg-white p-6 shadow-2xl ring-1 ring-slate-200';
 
+export const modalPanelClass4xl =
+  'relative z-10 min-h-0 w-full max-h-[min(90vh,calc(100dvh-3rem))] max-w-4xl overflow-y-auto overscroll-contain rounded-2xl bg-white p-6 shadow-2xl ring-1 ring-slate-200';
+
 /**
  * Wrapper for data tables: vertical + horizontal scroll with a max height so
  * `position: sticky` on `<thead>` keeps headers visible while scrolling rows.

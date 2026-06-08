@@ -72,7 +72,7 @@ function overduePriorityCopy(od) {
   const n = Number(od?.billCount) || 0;
   const d = Number(od?.maxDaysOverdue) || 0;
   const p = od?.priority || 'none';
-  if (n === 0) return 'No overdue bills · within 14-day terms';
+  if (n === 0) return 'No overdue bills · within payment terms';
   if (p === 'low') return `${n} bill${n === 1 ? '' : 's'} · up to ${d} day${d === 1 ? '' : 's'} late`;
   if (p === 'moderate') return `${n} bill${n === 1 ? '' : 's'} · ${d} days late (review)`;
   if (p === 'high') return `${n} bill${n === 1 ? '' : 's'} · ${d} days late (urgent)`;
@@ -230,7 +230,7 @@ export default function DashboardLayout() {
             <p
               className={`text-[10px] font-medium uppercase tracking-wider ${OVERDUE_PRIORITY_LABEL[overduePriority]}`}
             >
-              Overdue (14-day terms)
+              Overdue bills
             </p>
             <p
               className={`mt-0.5 text-lg font-bold tabular-nums tracking-tight ${OVERDUE_PRIORITY_AMOUNT[overduePriority]}`}

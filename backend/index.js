@@ -22,10 +22,22 @@ const {
   computeRemainingAmount,
   paymentCreditToCustomer,
 } = require('./customerBalance');
+const {
+  readOverdueDates,
+  setCustomerOverdueDays,
+  getOverdueDaysForCustomer,
+  normalizeOverdueDays,
+  DEFAULT_OVERDUE_DAYS,
+} = require('./overdueDatesStore');
 
-function enrichCustomerBalance(customer, bills, payments) {
+function enrichCustomerBalance(customer, bills, payments, overdueDates = {}) {
   const { amountToPay, overpaymentAmount } = computeCustomerBalance(customer, bills, payments);
-  return { ...customer, remainingAmount: amountToPay, overpaymentAmount };
+  return {
+    ...customer,
+    remainingAmount: amountToPay,
+    overpaymentAmount,
+    overdueDays: getOverdueDaysForCustomer(overdueDates, customer.id),
+  };
 }
 const { readBills, writeBills, lineTotal, sumAllBillBagsByBrand } = require('./billsStore');
 const {
@@ -68,11 +80,12 @@ app.get('/api/health', (req, res) => {
 /** Aggregates for dashboard "Your card": receivables, stock spend, payments in */
 app.get('/api/cash-summary', async (req, res) => {
   try {
-    const [customers, bills, payments, stocks] = await Promise.all([
+    const [customers, bills, payments, stocks, overdueDates] = await Promise.all([
       readCustomers(),
       readBills(),
       readPayments(),
       readStocks(),
+      readOverdueDates(),
     ]);
     let pendingFromCustomers = 0;
     for (const c of customers) {
@@ -87,7 +100,7 @@ app.get('/api/cash-summary', async (req, res) => {
       cashReceivedFromCustomers += paymentCreditToCustomer(p);
     }
     const round2 = (n) => Math.round(Number(n) * 100) / 100;
-    const overdueRows = collectOverdueBillRows(customers, bills, payments);
+    const overdueRows = collectOverdueBillRows(customers, bills, payments, overdueDates);
     const maxDaysOverdue = overdueRows.length
       ? Math.max(...overdueRows.map((r) => r.daysOverdue))
       : 0;
@@ -127,8 +140,8 @@ function lastNDaysYmdLocal(n) {
   return out;
 }
 
-/** Credit bills are treated as due for payment by bill date + this many days (local calendar). */
-const BILL_SETTLEMENT_DAYS = 14;
+/** Default credit bill settlement window when a customer has no override in overduedates.json. */
+const BILL_SETTLEMENT_DAYS = DEFAULT_OVERDUE_DAYS;
 
 /** How a payment settled the account (customer transaction list). */
 function paymentSettlementSummary(p) {
@@ -303,11 +316,12 @@ function billDetailsLine(bill) {
 }
 
 /** Overdue credit bills (same rules as `/api/overdue-bills`). */
-function collectOverdueBillRows(customers, bills, payments) {
+function collectOverdueBillRows(customers, bills, payments, overdueDates = {}) {
   const todayYmd = ymdTodayLocal();
   const overdue = [];
 
   for (const cust of customers) {
+    const settlementDays = getOverdueDaysForCustomer(overdueDates, cust.id);
     const nk = normalizeCustomerName(cust.name);
     const custBills = bills.filter((b) => normalizeCustomerName(b.customerName) === nk);
     let paySum = 0;
@@ -329,7 +343,7 @@ function collectOverdueBillRows(customers, bills, payments) {
       const paidTowardBill = Math.min(total, remainingCredit);
       remainingCredit -= paidTowardBill;
       const remaining = Math.round((total - paidTowardBill) * 100) / 100;
-      const due = addDaysToYmd(bill.date, BILL_SETTLEMENT_DAYS);
+      const due = addDaysToYmd(bill.date, settlementDays);
       if (remaining > 0 && due && todayYmd > due) {
         overdue.push({
           id: bill.id,
@@ -340,6 +354,7 @@ function collectOverdueBillRows(customers, bills, payments) {
           outstandingAmount: remaining,
           billTotal: total,
           details: billDetailsLine(bill),
+          settlementDays,
         });
       }
     }
@@ -515,17 +530,18 @@ app.get('/api/recent-transfers', async (req, res) => {
 });
 
 /**
- * Bills that are still unpaid past the settlement window (bill date + 14 days local).
+ * Bills that are still unpaid past the settlement window (bill date + per-customer overdue days, default 14 local).
  * Payments apply to `pastBill` first, then to bills in chronological order (same idea as balances).
  */
 app.get('/api/overdue-bills', async (req, res) => {
   try {
-    const [customers, bills, payments] = await Promise.all([
+    const [customers, bills, payments, overdueDates] = await Promise.all([
       readCustomers(),
       readBills(),
       readPayments(),
+      readOverdueDates(),
     ]);
-    res.json(collectOverdueBillRows(customers, bills, payments));
+    res.json(collectOverdueBillRows(customers, bills, payments, overdueDates));
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'Failed to load overdue bills' });
@@ -621,8 +637,12 @@ app.delete('/api/users/:id', async (req, res) => {
 app.get('/api/customers', async (req, res) => {
   try {
     const customers = await readCustomers();
-    const [bills, payments] = await Promise.all([readBills(), readPayments()]);
-    const enriched = customers.map((c) => enrichCustomerBalance(c, bills, payments));
+    const [bills, payments, overdueDates] = await Promise.all([
+      readBills(),
+      readPayments(),
+      readOverdueDates(),
+    ]);
+    const enriched = customers.map((c) => enrichCustomerBalance(c, bills, payments, overdueDates));
     const sorted = [...enriched].sort((a, b) =>
       String(a.name || '').localeCompare(String(b.name || ''), undefined, {
         sensitivity: 'base',
@@ -645,7 +665,11 @@ app.get('/api/customers/:id/transactions', async (req, res) => {
     }
     const nameKey = normalizeCustomerName(cust.name);
 
-    const [bills, payments] = await Promise.all([readBills(), readPayments()]);
+    const [bills, payments, overdueDates] = await Promise.all([
+      readBills(),
+      readPayments(),
+      readOverdueDates(),
+    ]);
     const transactions = [];
 
     const openingDetails = [
@@ -707,7 +731,10 @@ app.get('/api/customers/:id/transactions', async (req, res) => {
 
     transactions.sort((a, b) => new Date(b.sortAt).getTime() - new Date(a.sortAt).getTime());
 
-    res.json({ customer: enrichCustomerBalance(cust, bills, payments), transactions });
+    res.json({
+      customer: enrichCustomerBalance(cust, bills, payments, overdueDates),
+      transactions,
+    });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'Failed to load transactions' });
@@ -771,7 +798,8 @@ app.patch('/api/customers/:id', async (req, res) => {
     const hasContact = body.contactNumber !== undefined;
     const hasDueDate = body.dueDate !== undefined;
     const hasPastBill = body.pastBill !== undefined;
-    if (!hasName && !hasLocation && !hasContact && !hasDueDate && !hasPastBill) {
+    const hasOverdueDays = body.overdueDays !== undefined;
+    if (!hasName && !hasLocation && !hasContact && !hasDueDate && !hasPastBill && !hasOverdueDays) {
       return res.status(400).json({ error: 'No fields to update' });
     }
 
@@ -821,6 +849,17 @@ app.patch('/api/customers/:id', async (req, res) => {
       }
     }
 
+    let overdueDates = await readOverdueDates();
+    if (hasOverdueDays) {
+      const nextOverdueDays = normalizeOverdueDays(body.overdueDays);
+      if (nextOverdueDays == null) {
+        return res.status(400).json({
+          error: `overdueDays must be an integer from 1 to 365 (default ${DEFAULT_OVERDUE_DAYS})`,
+        });
+      }
+      overdueDates = await setCustomerOverdueDays(id, nextOverdueDays);
+    }
+
     cust.updatedAt = new Date().toISOString();
     cust.updatedBy = updatedBy;
 
@@ -861,7 +900,7 @@ app.patch('/api/customers/:id', async (req, res) => {
     customers[idx] = cust;
     await writeCustomers(customers);
 
-    res.json(enrichCustomerBalance(cust, bills, payments));
+    res.json(enrichCustomerBalance(cust, bills, payments, overdueDates));
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'Failed to update customer' });
@@ -1070,27 +1109,36 @@ app.patch('/api/payments/:id', async (req, res) => {
 /** Cheques (by cheque date) not yet marked as deposited to the bank — default `date` is today (server local). */
 app.get('/api/cheque-deposit-queue', async (req, res) => {
   try {
-    const on = String(req.query.date ?? '').trim() || paymentDateDefaultYmd();
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(on)) {
+    const fromDate = String(req.query.date ?? '').trim() || paymentDateDefaultYmd();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fromDate)) {
       return res.status(400).json({ error: 'Invalid date' });
+    }
+    const daysRaw = req.query.days != null ? Number(req.query.days) : 1;
+    const days = Number.isFinite(daysRaw) && daysRaw >= 1 && daysRaw <= 31 ? Math.floor(daysRaw) : 1;
+    const throughDate = addDaysToYmd(fromDate, days - 1);
+    if (!throughDate) {
+      return res.status(400).json({ error: 'Invalid date range' });
     }
     const payments = await readPayments();
     const items = [];
     for (const p of payments) {
       for (const cheque of getPaymentCheques(p)) {
         if (cheque.chequeDeposited) continue;
-        if (cheque.chequeDate !== on) continue;
+        const cd = String(cheque.chequeDate ?? '').slice(0, 10);
+        if (!cd || cd < fromDate || cd > throughDate) continue;
         items.push(chequeDepositQueueItem(p, cheque));
       }
     }
     const sorted = [...items].sort((a, b) => {
+      const dateCmp = String(a.chequeDate || '').localeCompare(String(b.chequeDate || ''));
+      if (dateCmp !== 0) return dateCmp;
       const t = new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
       if (t !== 0) return t;
       const idCmp = String(b.id).localeCompare(String(a.id));
       if (idCmp !== 0) return idCmp;
-      return String(b.chequeId || '').localeCompare(String(a.chequeId || ''));
+      return String(a.chequeId || '').localeCompare(String(b.chequeId || ''));
     });
-    res.json({ asOfDate: on, items: sorted });
+    res.json({ asOfDate: fromDate, throughDate, days, items: sorted });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'Failed to load cheque deposit queue' });
@@ -1520,18 +1568,22 @@ app.post('/api/stocks', async (req, res) => {
       tokyoCost: toNonNegNumber(body.tokyoCost),
       tokyoInvoice: trimStr(body.tokyoInvoice),
       tokyoCheque: trimStr(body.tokyoCheque),
+      tokyoConvertingDate: trimStr(body.tokyoConvertingDate).slice(0, 10),
       samudraBags: toNonNegNumber(body.samudraBags),
       samudraCost: toNonNegNumber(body.samudraCost),
       samudraInvoice: trimStr(body.samudraInvoice),
       samudraCheque: trimStr(body.samudraCheque),
+      samudraConvertingDate: trimStr(body.samudraConvertingDate).slice(0, 10),
       atlasBags: toNonNegNumber(body.atlasBags),
       atlasCost: toNonNegNumber(body.atlasCost),
       atlasInvoice: trimStr(body.atlasInvoice),
       atlasCheque: trimStr(body.atlasCheque),
+      atlasConvertingDate: trimStr(body.atlasConvertingDate).slice(0, 10),
       nipponBags: toNonNegNumber(body.nipponBags),
       nipponCost: toNonNegNumber(body.nipponCost),
       nipponInvoice: trimStr(body.nipponInvoice),
       nipponCheque: trimStr(body.nipponCheque),
+      nipponConvertingDate: trimStr(body.nipponConvertingDate).slice(0, 10),
       addedBy,
       createdAt: new Date().toISOString(),
     };
@@ -1546,10 +1598,15 @@ app.post('/api/stocks', async (req, res) => {
       ['nippon', 'Nippon'],
     ];
     const missingRefs = [];
+    const YMD_RE = /^\d{4}-\d{2}-\d{2}$/;
     for (const [key, label] of stockBrandsRequireRefs) {
       if (toNonNegNumber(row[`${key}Bags`]) >= 1) {
         if (!row[`${key}Invoice`]) missingRefs.push(`${label} invoice number`);
         if (!row[`${key}Cheque`]) missingRefs.push(`${label} cheque number`);
+        const convertingDate = row[`${key}ConvertingDate`];
+        if (!convertingDate || !YMD_RE.test(convertingDate)) {
+          row[`${key}ConvertingDate`] = date;
+        }
       }
     }
     if (missingRefs.length > 0) {

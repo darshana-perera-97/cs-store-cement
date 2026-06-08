@@ -13,6 +13,7 @@ import PaymentsPage from './dashboard/PaymentsPage';
 import BankPage from './dashboard/BankPage';
 import PromotionsPage from './dashboard/PromotionsPage';
 import UsersPage from './dashboard/UsersPage';
+import CashOutPage from './dashboard/CashOutPage';
 import StockPage from './dashboard/StockPage';
 import ReportsPage from './dashboard/ReportsPage';
 
@@ -50,6 +51,7 @@ function AppRoutes() {
         <Route path="bank" element={<BankPage />} />
         <Route path="promotions" element={<PromotionsPage />} />
         <Route path="users" element={<UsersPage />} />
+        <Route path="cash-out" element={<CashOutPage />} />
       </Route>
       <Route
         path="/"

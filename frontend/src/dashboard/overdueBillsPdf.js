@@ -89,7 +89,7 @@ export function downloadOverdueBillsPdf(rows, options = {}) {
   });
   doc.text(`Generated: ${dateStr}`, margin, 22);
   doc.text(
-    'Unpaid credit bills past bill date + 14 days. Each shop lists individual bills plus total outstanding in LKR.',
+    'Unpaid credit bills past each customer’s bill overdue window (default 14 days after bill date). Each shop lists individual bills plus total outstanding in LKR.',
     margin,
     27,
   );

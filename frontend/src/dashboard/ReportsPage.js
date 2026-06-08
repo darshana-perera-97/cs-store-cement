@@ -9,6 +9,8 @@ import {
   stickyThead,
 } from './tableToolbar';
 import { buildChequeTableRows, chequePortion } from './paymentCheques';
+import { downloadReportsPdf } from './reportsPdf';
+import { downloadRefReport } from './reportsRefExport';
 
 const apiBase = getApiBase();
 
@@ -71,15 +73,31 @@ function money(n) {
   }).format(Number(n) || 0);
 }
 
-function bagsFromRecord(record) {
+function bagsFromRecord(record, brandKey = '') {
   const byBrand = {};
   let total = 0;
-  for (const b of BRANDS) {
+  const brands = brandKey ? BRANDS.filter((b) => b.key === brandKey) : BRANDS;
+  for (const b of brands) {
     const n = Number(record[b.bagsField]) || 0;
     byBrand[b.key] = n;
     total += n;
   }
   return { byBrand, total };
+}
+
+function brandLineFromBill(bill, brandKey) {
+  if (!brandKey) return Number(bill.totalAmount) || 0;
+  const line = Number(bill[`${brandKey}Line`]);
+  if (line > 0) return line;
+  const bags = Number(bill[`${brandKey}Bags`]) || 0;
+  const price = Number(bill[`${brandKey}UnitPrice`]) || 0;
+  return Math.round(bags * price * 100) / 100;
+}
+
+function recordHasBrandBags(record, brandKey) {
+  if (!brandKey) return true;
+  const brand = BRANDS.find((b) => b.key === brandKey);
+  return brand ? (Number(record[brand.bagsField]) || 0) > 0 : false;
 }
 
 /** Matches backend `paymentCreditToCustomer`: cash + cheque credited to the customer. */
@@ -151,10 +169,13 @@ function Card({ title, subtitle, children }) {
   );
 }
 
-function BrandBagSummary({ byBrand, total, loadCount }) {
+function BrandBagSummary({ byBrand, total, loadCount, brandKey = '' }) {
+  const visibleBrands = brandKey ? BRANDS.filter((b) => b.key === brandKey) : BRANDS;
   return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-      {BRANDS.map((b) => (
+    <div
+      className={`grid gap-3 sm:grid-cols-2 ${visibleBrands.length > 1 ? 'lg:grid-cols-5' : 'lg:grid-cols-2'}`}
+    >
+      {visibleBrands.map((b) => (
         <div
           key={b.key}
           className={`rounded-xl bg-gradient-to-br ${b.accent} p-4 text-white shadow-md ring-1 ${b.ring}`}
@@ -190,6 +211,7 @@ export default function ReportsPage() {
   const [dateTo, setDateTo] = useState(() => weeklyRangeFromWeekValue(currentIsoWeekValue()).to);
   const [appliedFrom, setAppliedFrom] = useState(() => weeklyRangeFromWeekValue(currentIsoWeekValue()).from);
   const [appliedTo, setAppliedTo] = useState(() => weeklyRangeFromWeekValue(currentIsoWeekValue()).to);
+  const [brandFilter, setBrandFilter] = useState('');
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -275,17 +297,21 @@ export default function ReportsPage() {
     setAppliedTo(dateTo);
   };
 
+  const activeBrand = useMemo(() => BRANDS.find((b) => b.key === brandFilter) ?? null, [brandFilter]);
+
   const loadsReport = useMemo(() => {
-    const filtered = loads.filter((r) => inDateRange(r.date, appliedFrom, appliedTo));
+    const filtered = loads.filter(
+      (r) => inDateRange(r.date, appliedFrom, appliedTo) && recordHasBrandBags(r, brandFilter),
+    );
     const byBrand = Object.fromEntries(BRANDS.map((b) => [b.key, 0]));
     let total = 0;
     for (const r of filtered) {
-      const { byBrand: row, total: rowTotal } = bagsFromRecord(r);
-      for (const b of BRANDS) byBrand[b.key] += row[b.key];
+      const { byBrand: row, total: rowTotal } = bagsFromRecord(r, brandFilter);
+      for (const b of BRANDS) byBrand[b.key] += row[b.key] || 0;
       total += rowTotal;
     }
     return { byBrand, total, loadCount: filtered.length };
-  }, [loads, appliedFrom, appliedTo]);
+  }, [loads, appliedFrom, appliedTo, brandFilter]);
 
   const shopRows = useMemo(() => {
     const map = new Map();
@@ -313,14 +339,15 @@ export default function ReportsPage() {
 
     for (const b of bills) {
       if (!inDateRange(b.date, appliedFrom, appliedTo)) continue;
+      if (!recordHasBrandBags(b, brandFilter)) continue;
       const row = ensure(b.customerName);
-      const { byBrand, total } = bagsFromRecord(b);
-      row.tokyoBags += byBrand.tokyo;
-      row.samudraBags += byBrand.samudra;
-      row.atlasBags += byBrand.atlas;
-      row.nipponBags += byBrand.nippon;
+      const { byBrand, total } = bagsFromRecord(b, brandFilter);
+      row.tokyoBags += byBrand.tokyo || 0;
+      row.samudraBags += byBrand.samudra || 0;
+      row.atlasBags += byBrand.atlas || 0;
+      row.nipponBags += byBrand.nippon || 0;
       row.totalBags += total;
-      row.creditSales += Number(b.totalAmount) || 0;
+      row.creditSales += brandLineFromBill(b, brandFilter);
       row.billCount += 1;
     }
 
@@ -332,7 +359,43 @@ export default function ReportsPage() {
     }
 
     return [...map.values()].sort((a, b) => a.shop.localeCompare(b.shop));
-  }, [bills, payments, appliedFrom, appliedTo, customerLocationMap]);
+  }, [bills, payments, appliedFrom, appliedTo, customerLocationMap, brandFilter]);
+
+  const visibleBrands = useMemo(
+    () => (activeBrand ? [activeBrand] : BRANDS),
+    [activeBrand],
+  );
+
+  const refDetailRows = useMemo(() => {
+    const brands = brandFilter ? BRANDS.filter((b) => b.key === brandFilter) : BRANDS;
+    const rows = [];
+    for (const b of bills) {
+      if (!inDateRange(b.date, appliedFrom, appliedTo)) continue;
+      if (!recordHasBrandBags(b, brandFilter)) continue;
+      const shop = String(b.customerName ?? '').trim() || '—';
+      const location = customerLocationMap.get(shop.toLowerCase()) || '';
+      const date = String(b.date ?? '').slice(0, 10);
+      for (const brand of brands) {
+        const bagCount = Number(b[brand.bagsField]) || 0;
+        if (bagCount <= 0) continue;
+        rows.push({
+          date,
+          shop,
+          location,
+          bagType: brand.label,
+          bagCount,
+        });
+      }
+    }
+    rows.sort((a, b) => {
+      const shopCmp = a.shop.localeCompare(b.shop);
+      if (shopCmp !== 0) return shopCmp;
+      const dateCmp = a.date.localeCompare(b.date);
+      if (dateCmp !== 0) return dateCmp;
+      return a.bagType.localeCompare(b.bagType);
+    });
+    return rows;
+  }, [bills, appliedFrom, appliedTo, brandFilter, customerLocationMap]);
 
   const shopTotals = useMemo(
     () =>
@@ -384,6 +447,56 @@ export default function ReportsPage() {
           ? `Until ${appliedTo}`
           : 'All dates';
 
+  const filterHint = [
+    `Report period: ${periodLabel}`,
+    activeBrand ? `Brand: ${activeBrand.label}` : 'Brand: All brands',
+  ].join(' · ');
+
+  const handleDownloadPdf = useCallback(() => {
+    downloadReportsPdf(
+      {
+        periodLabel,
+        brandLabel: activeBrand ? activeBrand.label : 'All brands',
+        loadsReport,
+        visibleBrands,
+        shopRows,
+        shopTotals,
+        bankDailyRows,
+        bankDailyTotals,
+        pendingChequeRows,
+        pendingChequeTotal,
+      },
+      { dateFrom: appliedFrom, dateTo: appliedTo },
+    );
+  }, [
+    appliedFrom,
+    appliedTo,
+    periodLabel,
+    activeBrand,
+    loadsReport,
+    visibleBrands,
+    shopRows,
+    shopTotals,
+    bankDailyRows,
+    bankDailyTotals,
+    pendingChequeRows,
+    pendingChequeTotal,
+  ]);
+
+  const handleDownloadRef = useCallback(() => {
+    downloadRefReport(
+      refDetailRows,
+      {
+        periodLabel,
+        brandLabel: activeBrand ? activeBrand.label : 'All brands',
+      },
+      { dateFrom: appliedFrom, dateTo: appliedTo, brandLabel: activeBrand ? activeBrand.label : 'All brands' },
+    );
+  }, [refDetailRows, periodLabel, activeBrand, appliedFrom, appliedTo]);
+
+  const downloadBtnClass =
+    'rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 shadow-sm ring-1 ring-slate-100 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50';
+
   return (
     <div className="space-y-5">
       <div className="rounded-[20px] bg-white p-5 shadow-lg shadow-slate-200/40 ring-1 ring-slate-100 sm:p-6">
@@ -394,7 +507,7 @@ export default function ReportsPage() {
         </p>
       </div>
 
-      <TableFiltersBar hint={!loading ? `Report period: ${periodLabel}` : null}>
+      <TableFiltersBar hint={!loading ? filterHint : null}>
         <div className="flex flex-col gap-2">
           <span className="text-sm font-medium text-slate-600">Period</span>
           <div className="inline-flex rounded-xl bg-slate-100/90 p-1 ring-1 ring-slate-200/60">
@@ -477,6 +590,37 @@ export default function ReportsPage() {
             </div>
           </>
         ) : null}
+
+        <label className="block min-w-[160px] text-sm font-medium text-slate-600">
+          Brand
+          <select value={brandFilter} onChange={(e) => setBrandFilter(e.target.value)} className={filterControl}>
+            <option value="">All brands</option>
+            {BRANDS.map((b) => (
+              <option key={b.key} value={b.key}>
+                {b.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <div className="flex flex-wrap items-end gap-2">
+          <button
+            type="button"
+            onClick={handleDownloadPdf}
+            disabled={loading || !!error}
+            className={downloadBtnClass}
+          >
+            Download PDF for CS
+          </button>
+          <button
+            type="button"
+            onClick={handleDownloadRef}
+            disabled={loading || !!error || refDetailRows.length === 0}
+            className={downloadBtnClass}
+          >
+            Download for Ref
+          </button>
+        </div>
       </TableFiltersBar>
 
       {error ? (
@@ -491,18 +635,19 @@ export default function ReportsPage() {
         <>
           <Card
             title="Cement bags from loads"
-            subtitle={`Total bags received from stock loads in the selected period (${loadsReport.loadCount} load${loadsReport.loadCount === 1 ? '' : 's'})`}
+            subtitle={`Total bags received from stock loads in the selected period${activeBrand ? ` (${activeBrand.label} only)` : ''} (${loadsReport.loadCount} load${loadsReport.loadCount === 1 ? '' : 's'})`}
           >
             <BrandBagSummary
               byBrand={loadsReport.byBrand}
               total={loadsReport.total}
               loadCount={loadsReport.loadCount}
+              brandKey={brandFilter}
             />
           </Card>
 
           <Card
             title="Cement bags per shop"
-            subtitle="Credit bill bags sold to each customer in the selected period"
+            subtitle={`Credit bill bags sold to each customer in the selected period${activeBrand ? ` (${activeBrand.label} only)` : ''}`}
           >
             <div className={scrollTableWrap}>
               <table className="w-full min-w-[800px] border-separate border-spacing-0 text-left text-sm">
@@ -510,7 +655,7 @@ export default function ReportsPage() {
                   <tr className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                     <th className="whitespace-nowrap px-4 py-3">Shop</th>
                     <th className="whitespace-nowrap px-4 py-3">Location</th>
-                    {BRANDS.map((b) => (
+                    {visibleBrands.map((b) => (
                       <th key={b.key} className="whitespace-nowrap px-4 py-3 text-right">
                         {b.label}
                       </th>
@@ -520,18 +665,20 @@ export default function ReportsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {shopRows.length === 0 ? (
+                  {shopRows.filter((r) => r.totalBags > 0).length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
-                        No bag sales in this period.
+                      <td colSpan={visibleBrands.length + 4} className="px-4 py-8 text-center text-slate-500">
+                        No bag sales in this period{activeBrand ? ` for ${activeBrand.label}` : ''}.
                       </td>
                     </tr>
                   ) : (
-                    shopRows.map((r) => (
+                    shopRows
+                      .filter((r) => r.totalBags > 0)
+                      .map((r) => (
                       <tr key={r.shop} className="border-t border-slate-100 hover:bg-slate-50/80">
                         <td className="whitespace-nowrap px-4 py-3 font-medium text-slate-900">{r.shop}</td>
                         <td className="whitespace-nowrap px-4 py-3 text-slate-600">{r.location || '—'}</td>
-                        {BRANDS.map((b) => (
+                        {visibleBrands.map((b) => (
                           <td key={b.key} className="whitespace-nowrap px-4 py-3 text-right tabular-nums">
                             {r[`${b.key}Bags`].toLocaleString()}
                           </td>
@@ -546,14 +693,16 @@ export default function ReportsPage() {
                     ))
                   )}
                 </tbody>
-                {shopRows.length > 0 ? (
+                {shopRows.filter((r) => r.totalBags > 0).length > 0 ? (
                   <tfoot>
                     <tr className="border-t-2 border-slate-200 bg-slate-50/90 font-semibold text-slate-900">
                       <td className="px-4 py-3" colSpan={2}>
                         Total
                       </td>
-                      {BRANDS.map((b) => {
-                        const sum = shopRows.reduce((s, r) => s + (r[`${b.key}Bags`] || 0), 0);
+                      {visibleBrands.map((b) => {
+                        const sum = shopRows
+                          .filter((r) => r.totalBags > 0)
+                          .reduce((s, r) => s + (r[`${b.key}Bags`] || 0), 0);
                         return (
                           <td key={b.key} className="whitespace-nowrap px-4 py-3 text-right tabular-nums">
                             {sum.toLocaleString()}
@@ -564,7 +713,7 @@ export default function ReportsPage() {
                         {shopTotals.totalBags.toLocaleString()}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">
-                        {shopRows.reduce((s, r) => s + r.billCount, 0)}
+                        {shopRows.filter((r) => r.totalBags > 0).reduce((s, r) => s + r.billCount, 0)}
                       </td>
                     </tr>
                   </tfoot>
@@ -575,7 +724,7 @@ export default function ReportsPage() {
 
           <Card
             title="Credit sales per shop"
-            subtitle="Total credit bill amounts per customer in the selected period"
+            subtitle={`Total credit bill amounts per customer in the selected period${activeBrand ? ` (${activeBrand.label} line totals only)` : ''}`}
           >
             <div className={scrollTableWrap}>
               <table className="w-full min-w-[480px] border-separate border-spacing-0 text-left text-sm">

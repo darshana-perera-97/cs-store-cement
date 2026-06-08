@@ -23,22 +23,28 @@ const KIND_FILTERS = [
   { value: 'payment', label: 'Payments' },
 ];
 
+const DEFAULT_OVERDUE_DAYS = 14;
+
 const emptyCustomerForm = () => ({
   name: '',
   location: '',
   contactNumber: '',
   dueDate: '',
   pastBill: '',
+  overdueDays: String(DEFAULT_OVERDUE_DAYS),
 });
 
 function customerToForm(c) {
   if (!c) return emptyCustomerForm();
+  const overdueDays =
+    c.overdueDays === 0 || c.overdueDays ? String(c.overdueDays) : String(DEFAULT_OVERDUE_DAYS);
   return {
     name: c.name ?? '',
     location: c.location ?? '',
     contactNumber: c.contactNumber ?? '',
     dueDate: c.dueDate ?? '',
     pastBill: c.pastBill === 0 || c.pastBill ? String(c.pastBill) : '',
+    overdueDays,
   };
 }
 
@@ -198,6 +204,7 @@ export default function CustomerTransactionsPage() {
           contactNumber: customerForm.contactNumber.trim(),
           dueDate: customerForm.dueDate.trim(),
           pastBill: customerForm.pastBill,
+          overdueDays: customerForm.overdueDays,
           updatedBy: username,
         }),
       });
@@ -397,6 +404,13 @@ export default function CustomerTransactionsPage() {
                       </dd>
                     </div>
                   ) : null}
+                  <div>
+                    <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Bill overdue days</dt>
+                    <dd className="mt-0.5 font-medium text-slate-800">
+                      {customer.overdueDays ?? DEFAULT_OVERDUE_DAYS} day
+                      {(customer.overdueDays ?? DEFAULT_OVERDUE_DAYS) === 1 ? '' : 's'} after bill date
+                    </dd>
+                  </div>
                 </dl>
               </div>
             </div>
@@ -613,7 +627,8 @@ export default function CustomerTransactionsPage() {
               Edit customer details
             </h2>
             <p className="mt-1 text-sm text-slate-500">
-              Updates contact info, due date, and opening balance. Logged in as {getUsername() || '—'}.
+              Updates contact info, payment due date, bill overdue window, and opening balance. Logged in as{' '}
+              {getUsername() || '—'}.
             </p>
             <form className="mt-5 space-y-4" onSubmit={saveCustomerDetails}>
               {customerSaveError ? (
@@ -673,6 +688,22 @@ export default function CustomerTransactionsPage() {
                   onChange={(e) => handleCustomerFormChange('dueDate', e.target.value)}
                   className="mt-1 w-full rounded-xl border-0 bg-slate-100 px-3 py-2.5 text-sm ring-1 ring-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/35"
                 />
+              </label>
+              <label className="block text-sm font-medium text-slate-600">
+                Bill overdue days
+                <input
+                  type="number"
+                  min={1}
+                  max={365}
+                  step={1}
+                  required
+                  value={customerForm.overdueDays}
+                  onChange={(e) => handleCustomerFormChange('overdueDays', e.target.value)}
+                  className="mt-1 w-full rounded-xl border-0 bg-slate-100 px-3 py-2.5 text-sm tabular-nums ring-1 ring-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/35"
+                />
+                <span className="mt-1 block text-xs font-normal text-slate-500">
+                  Days after each bill date before unpaid credit sales appear as overdue (default {DEFAULT_OVERDUE_DAYS}).
+                </span>
               </label>
               <label className="block text-sm font-medium text-slate-600">
                 Opening balance (LKR)

@@ -46,7 +46,7 @@ const DONUT_COLORS = ['#a78bfa', '#34d399'];
 const OVERDUE_VIEW_ALL_THRESHOLD = 10;
 
 const overdueSubtitle =
-  'Payment is due within 14 days of each bill date (local calendar); these credit bills still have a balance after that due date.';
+  'Payment is due within each customer’s bill overdue window (default 14 days after bill date); these credit bills still have a balance after that due date.';
 
 function formatLkrCompact(n) {
   return new Intl.NumberFormat(undefined, {
@@ -177,7 +177,11 @@ export default function AnalyticsPage() {
   const [recentTransfers, setRecentTransfers] = useState([]);
   const [overdueBills, setOverdueBills] = useState([]);
   const [cashDashLoading, setCashDashLoading] = useState(true);
-  const [chequeDepositQueue, setChequeDepositQueue] = useState({ asOfDate: '', items: [] });
+  const [chequeDepositQueue, setChequeDepositQueue] = useState({
+    asOfDate: '',
+    throughDate: '',
+    items: [],
+  });
   const [chequeDepositErr, setChequeDepositErr] = useState(null);
   const [markingChequeId, setMarkingChequeId] = useState(null);
   const [overdueSearch, setOverdueSearch] = useState('');
@@ -185,20 +189,21 @@ export default function AnalyticsPage() {
 
   const refreshChequeDepositQueue = useCallback(async () => {
     try {
-      const res = await fetch(`${apiRoot}/api/cheque-deposit-queue`);
+      const res = await fetch(`${apiRoot}/api/cheque-deposit-queue?days=3`);
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setChequeDepositQueue({ asOfDate: '', items: [] });
+        setChequeDepositQueue({ asOfDate: '', throughDate: '', items: [] });
         setChequeDepositErr(data.error || 'Could not load cheques for deposit');
         return;
       }
       setChequeDepositErr(null);
       setChequeDepositQueue({
         asOfDate: String(data.asOfDate ?? ''),
+        throughDate: String(data.throughDate ?? data.asOfDate ?? ''),
         items: Array.isArray(data.items) ? data.items : [],
       });
     } catch {
-      setChequeDepositQueue({ asOfDate: '', items: [] });
+      setChequeDepositQueue({ asOfDate: '', throughDate: '', items: [] });
       setChequeDepositErr('Could not reach server');
     }
   }, [apiRoot]);
@@ -250,7 +255,7 @@ export default function AnalyticsPage() {
           fetch(`${apiRoot}/api/bag-sales-by-day?days=7`),
           fetch(`${apiRoot}/api/recent-transfers?limit=5`),
           fetch(`${apiRoot}/api/overdue-bills`),
-          fetch(`${apiRoot}/api/cheque-deposit-queue`),
+          fetch(`${apiRoot}/api/cheque-deposit-queue?days=3`),
         ]);
         if (!cancelled) {
           if (sumRes.ok) setCashSummary(await sumRes.json());
@@ -284,10 +289,11 @@ export default function AnalyticsPage() {
             setChequeDepositErr(null);
             setChequeDepositQueue({
               asOfDate: String(cd.asOfDate ?? ''),
+              throughDate: String(cd.throughDate ?? cd.asOfDate ?? ''),
               items: Array.isArray(cd.items) ? cd.items : [],
             });
           } else {
-            setChequeDepositQueue({ asOfDate: '', items: [] });
+            setChequeDepositQueue({ asOfDate: '', throughDate: '', items: [] });
             const errJson = await chequeRes.json().catch(() => ({}));
             setChequeDepositErr(errJson.error || 'Could not load cheque deposit list');
           }
@@ -299,7 +305,7 @@ export default function AnalyticsPage() {
           setBagSalesByDay([]);
           setRecentTransfers([]);
           setOverdueBills([]);
-          setChequeDepositQueue({ asOfDate: '', items: [] });
+          setChequeDepositQueue({ asOfDate: '', throughDate: '', items: [] });
           setChequeDepositErr('Could not load dashboard data');
         }
       } finally {
@@ -411,7 +417,7 @@ export default function AnalyticsPage() {
         <p className="text-sm text-slate-600">{overdueSubtitle}</p>
         <Card
           title={`Overdue bills (${overdueBills.length})`}
-          subtitle="Full list — same 14-day rule as the dashboard summary."
+          subtitle="Full list — same per-customer overdue rules as the dashboard summary."
           headerExtra={overdueDownloadButton}
         >
           <TableFiltersBar
@@ -420,7 +426,7 @@ export default function AnalyticsPage() {
               cashDashLoading
                 ? null
                 : overdueBills.length === 0
-                  ? 'No overdue bills — all are within 14 days or fully allocated by payments.'
+                  ? 'No overdue bills — all are within payment terms or fully allocated by payments.'
                   : filteredOverdueBills.length === overdueBills.length
                     ? `${overdueBills.length} overdue bill${overdueBills.length === 1 ? '' : 's'}.`
                     : `Showing ${filteredOverdueBills.length} of ${overdueBills.length} matching search.`
@@ -673,8 +679,10 @@ export default function AnalyticsPage() {
         title="Cheques to deposit today"
         subtitle={
           chequeDepositQueue.asOfDate
-            ? `Cheques dated ${chequeDepositQueue.asOfDate} (server clock) that are not yet marked as deposited at the bank.`
-            : 'Uses the server’s calendar date for “today”.'
+            ? chequeDepositQueue.throughDate && chequeDepositQueue.throughDate !== chequeDepositQueue.asOfDate
+              ? `Cheques dated ${chequeDepositQueue.asOfDate} through ${chequeDepositQueue.throughDate} (server clock) that are not yet marked as deposited at the bank.`
+              : `Cheques dated ${chequeDepositQueue.asOfDate} (server clock) that are not yet marked as deposited at the bank.`
+            : 'Uses the server’s calendar date for “today” plus the next 2 days.'
         }
       >
         {chequeDepositErr ? (
@@ -686,8 +694,8 @@ export default function AnalyticsPage() {
           <div className="py-8 text-center text-sm text-slate-500">Loading…</div>
         ) : chequeDepositQueue.items.length === 0 ? (
           <p className="py-6 text-center text-sm text-slate-500">
-            Nothing due for the bank run — either no cheques with today&apos;s date, or they are already marked as
-            deposited.
+            Nothing due for the bank run — either no cheques dated today or in the next 2 days, or they are already
+            marked as deposited.
           </p>
         ) : (
           <div className={scrollTableWrap}>
@@ -761,7 +769,7 @@ export default function AnalyticsPage() {
             cashDashLoading
               ? null
               : overdueBills.length === 0
-                ? 'No overdue bills — all are within 14 days or fully allocated by payments.'
+                ? 'No overdue bills — all are within payment terms or fully allocated by payments.'
                 : `Showing ${filteredOverdueBills.length} of ${overdueBills.length} overdue bill${
                     overdueBills.length === 1 ? '' : 's'
                   }${overdueSearch.trim() ? ' (search)' : ''}. Use the table pagination below.`

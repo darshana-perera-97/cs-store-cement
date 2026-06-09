@@ -24,8 +24,10 @@ const SECTION_RULES = [
   { test: (p) => p === '/dashboard/payments', title: `Payments — ${BRAND}` },
   { test: (p) => p === '/dashboard/bank', title: `Bank — ${BRAND}` },
   { test: (p) => p === '/dashboard/promotions', title: `Promotions — ${BRAND}` },
+  { test: (p) => p === '/dashboard/messages', title: `Messages — ${BRAND}` },
   { test: (p) => p === '/dashboard/users', title: `Users — ${BRAND}` },
   { test: (p) => p === '/dashboard/cash-out', title: `Cash Out — ${BRAND}` },
+  { test: (p) => p === '/dashboard/incentive', title: `Incentive — ${BRAND}` },
 ];
 
 export function useDocumentTitle(pathname) {

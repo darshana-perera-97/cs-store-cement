@@ -29,6 +29,10 @@ const {
   normalizeOverdueDays,
   DEFAULT_OVERDUE_DAYS,
 } = require('./overdueDatesStore');
+const { readEmailConfig, writeEmailConfig, maskEmailConfig } = require('./emailConfigsStore');
+const { readCompanyData, writeCompanyData } = require('./companyDataStore');
+const { readSentEmails } = require('./sentEmailsStore');
+const { notifyBillEmail, notifyPaymentEmail, notifyPromotionEmail } = require('./emailService');
 
 function enrichCustomerBalance(customer, bills, payments, overdueDates = {}) {
   const { amountToPay, overpaymentAmount } = computeCustomerBalance(customer, bills, payments);
@@ -752,6 +756,7 @@ app.post('/api/customers', async (req, res) => {
     const name = String(body.name ?? '').trim();
     const location = String(body.location ?? '').trim();
     const contactNumber = String(body.contactNumber ?? '').trim();
+    const email = String(body.email ?? '').trim();
     if (!name || !location || !contactNumber) {
       return res.status(400).json({ error: 'name, location, and contactNumber are required' });
     }
@@ -767,6 +772,7 @@ app.post('/api/customers', async (req, res) => {
       name,
       location,
       contactNumber,
+      ...(email ? { email } : {}),
       pastBill,
       remainingAmount: pastBill,
       dueDate,
@@ -796,10 +802,11 @@ app.patch('/api/customers/:id', async (req, res) => {
     const hasName = body.name !== undefined;
     const hasLocation = body.location !== undefined;
     const hasContact = body.contactNumber !== undefined;
+    const hasEmail = body.email !== undefined;
     const hasDueDate = body.dueDate !== undefined;
     const hasPastBill = body.pastBill !== undefined;
     const hasOverdueDays = body.overdueDays !== undefined;
-    if (!hasName && !hasLocation && !hasContact && !hasDueDate && !hasPastBill && !hasOverdueDays) {
+    if (!hasName && !hasLocation && !hasContact && !hasEmail && !hasDueDate && !hasPastBill && !hasOverdueDays) {
       return res.status(400).json({ error: 'No fields to update' });
     }
 
@@ -832,6 +839,14 @@ app.patch('/api/customers/:id', async (req, res) => {
         return res.status(400).json({ error: 'contactNumber cannot be empty' });
       }
       cust.contactNumber = contactNumber;
+    }
+    if (hasEmail) {
+      const email = String(body.email ?? '').trim();
+      if (email) {
+        cust.email = email;
+      } else {
+        delete cust.email;
+      }
     }
     if (hasDueDate) {
       const dueDate = String(body.dueDate ?? '').trim();
@@ -995,6 +1010,11 @@ app.post('/api/payments', async (req, res) => {
     cust.remainingAmount = computeRemainingAmount(cust, billsList, payments);
     await writeCustomers(customers);
     await writePayments(payments);
+    if (cust.email) {
+      notifyPaymentEmail(cust, row, cust.remainingAmount).catch((err) =>
+        console.error('payment email notification', err),
+      );
+    }
     res.status(201).json(row);
   } catch (e) {
     console.error(e);
@@ -1291,6 +1311,11 @@ app.post('/api/promotions', async (req, res) => {
     } catch (err) {
       console.error('liveStock refresh after promotion', err);
     }
+    if (cust.email) {
+      notifyPromotionEmail(cust, row).catch((err) =>
+        console.error('promotion email notification', err),
+      );
+    }
     res.status(201).json(row);
   } catch (e) {
     console.error(e);
@@ -1432,6 +1457,16 @@ app.post('/api/bills', async (req, res) => {
       console.error('liveStock refresh after bill', err);
     }
 
+    const customersForEmail = await readCustomers();
+    const custForEmail = customersForEmail.find(
+      (c) => normalizeCustomerName(c.name) === normalizeCustomerName(customerName),
+    );
+    if (custForEmail?.email) {
+      notifyBillEmail(custForEmail, row, custForEmail.remainingAmount).catch((err) =>
+        console.error('bill email notification', err),
+      );
+    }
+
     res.status(201).json(row);
   } catch (e) {
     console.error(e);
@@ -1559,6 +1594,13 @@ app.post('/api/stocks', async (req, res) => {
     }
 
     const trimStr = (v) => String(v ?? '').trim();
+    const cutOffNumberOrUndef = (v) => {
+      const s = String(v ?? '').trim();
+      if (!s) return undefined;
+      const n = Number(s);
+      if (!Number.isFinite(n) || n < 0) return undefined;
+      return toNonNegNumber(n);
+    };
     const row = {
       id: `load-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
       date,
@@ -1566,24 +1608,33 @@ app.post('/api/stocks', async (req, res) => {
       vehicleNumber,
       tokyoBags: toNonNegNumber(body.tokyoBags),
       tokyoCost: toNonNegNumber(body.tokyoCost),
+      tokyoCutOffPrice: cutOffNumberOrUndef(body.tokyoCutOffPrice),
       tokyoInvoice: trimStr(body.tokyoInvoice),
       tokyoCheque: trimStr(body.tokyoCheque),
       tokyoConvertingDate: trimStr(body.tokyoConvertingDate).slice(0, 10),
       samudraBags: toNonNegNumber(body.samudraBags),
       samudraCost: toNonNegNumber(body.samudraCost),
+      samudraCutOffPrice: cutOffNumberOrUndef(body.samudraCutOffPrice),
       samudraInvoice: trimStr(body.samudraInvoice),
       samudraCheque: trimStr(body.samudraCheque),
       samudraConvertingDate: trimStr(body.samudraConvertingDate).slice(0, 10),
       atlasBags: toNonNegNumber(body.atlasBags),
       atlasCost: toNonNegNumber(body.atlasCost),
+      atlasCutOffPrice: cutOffNumberOrUndef(body.atlasCutOffPrice),
       atlasInvoice: trimStr(body.atlasInvoice),
       atlasCheque: trimStr(body.atlasCheque),
       atlasConvertingDate: trimStr(body.atlasConvertingDate).slice(0, 10),
       nipponBags: toNonNegNumber(body.nipponBags),
       nipponCost: toNonNegNumber(body.nipponCost),
+      nipponCutOffPrice: cutOffNumberOrUndef(body.nipponCutOffPrice),
       nipponInvoice: trimStr(body.nipponInvoice),
       nipponCheque: trimStr(body.nipponCheque),
       nipponConvertingDate: trimStr(body.nipponConvertingDate).slice(0, 10),
+      transportCostPerBag: toNonNegNumber(body.transportCostPerBag),
+      marginPerBag:
+        body.marginPerBag === '' || body.marginPerBag == null
+          ? 70
+          : toNonNegNumber(body.marginPerBag),
       addedBy,
       createdAt: new Date().toISOString(),
     };
@@ -1627,6 +1678,198 @@ app.post('/api/stocks', async (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'Failed to save stock record' });
+  }
+});
+
+app.patch('/api/stocks/:id', async (req, res) => {
+  try {
+    const id = String(req.params.id ?? '').trim();
+    if (!id) {
+      return res.status(400).json({ error: 'Stock id is required' });
+    }
+    const body = req.body || {};
+    const updatedBy = String(body.updatedBy ?? body.addedBy ?? '').trim();
+    if (!updatedBy) {
+      return res.status(400).json({ error: 'updatedBy (username) is required' });
+    }
+
+    const date = String(body.date ?? '').trim();
+    const stockId = String(body.stockId ?? '').trim();
+    const vehicleNumber = String(body.vehicleNumber ?? '').trim();
+    if (!date || !stockId || !vehicleNumber) {
+      return res.status(400).json({ error: 'date, stockId, and vehicleNumber are required' });
+    }
+
+    const stocks = await readStocks();
+    const idx = stocks.findIndex((s) => s.id === id);
+    if (idx < 0) {
+      return res.status(404).json({ error: 'Stock record not found' });
+    }
+    const existing = stocks[idx];
+
+    const trimStr = (v) => String(v ?? '').trim();
+    const cutOffNumberOrUndef = (v) => {
+      const s = String(v ?? '').trim();
+      if (!s) return undefined;
+      const n = Number(s);
+      if (!Number.isFinite(n) || n < 0) return undefined;
+      return toNonNegNumber(n);
+    };
+    const row = {
+      ...existing,
+      date,
+      stockId,
+      vehicleNumber,
+      tokyoBags: toNonNegNumber(body.tokyoBags),
+      tokyoCost: toNonNegNumber(body.tokyoCost),
+      tokyoCutOffPrice: cutOffNumberOrUndef(body.tokyoCutOffPrice),
+      tokyoInvoice: trimStr(body.tokyoInvoice),
+      tokyoCheque: trimStr(body.tokyoCheque),
+      tokyoConvertingDate: trimStr(body.tokyoConvertingDate).slice(0, 10),
+      samudraBags: toNonNegNumber(body.samudraBags),
+      samudraCost: toNonNegNumber(body.samudraCost),
+      samudraCutOffPrice: cutOffNumberOrUndef(body.samudraCutOffPrice),
+      samudraInvoice: trimStr(body.samudraInvoice),
+      samudraCheque: trimStr(body.samudraCheque),
+      samudraConvertingDate: trimStr(body.samudraConvertingDate).slice(0, 10),
+      atlasBags: toNonNegNumber(body.atlasBags),
+      atlasCost: toNonNegNumber(body.atlasCost),
+      atlasCutOffPrice: cutOffNumberOrUndef(body.atlasCutOffPrice),
+      atlasInvoice: trimStr(body.atlasInvoice),
+      atlasCheque: trimStr(body.atlasCheque),
+      atlasConvertingDate: trimStr(body.atlasConvertingDate).slice(0, 10),
+      nipponBags: toNonNegNumber(body.nipponBags),
+      nipponCost: toNonNegNumber(body.nipponCost),
+      nipponCutOffPrice: cutOffNumberOrUndef(body.nipponCutOffPrice),
+      nipponInvoice: trimStr(body.nipponInvoice),
+      nipponCheque: trimStr(body.nipponCheque),
+      nipponConvertingDate: trimStr(body.nipponConvertingDate).slice(0, 10),
+      transportCostPerBag: toNonNegNumber(body.transportCostPerBag),
+      marginPerBag:
+        body.marginPerBag === '' || body.marginPerBag == null
+          ? 70
+          : toNonNegNumber(body.marginPerBag),
+      updatedBy,
+      updatedAt: new Date().toISOString(),
+    };
+
+    row.totalAmount =
+      row.tokyoCost + row.samudraCost + row.atlasCost + row.nipponCost;
+
+    const stockBrandsRequireRefs = [
+      ['tokyo', 'Tokyo'],
+      ['samudra', 'Samudra'],
+      ['atlas', 'Atlas'],
+      ['nippon', 'Nippon'],
+    ];
+    const missingRefs = [];
+    const YMD_RE = /^\d{4}-\d{2}-\d{2}$/;
+    for (const [key, label] of stockBrandsRequireRefs) {
+      if (toNonNegNumber(row[`${key}Bags`]) >= 1) {
+        if (!row[`${key}Invoice`]) missingRefs.push(`${label} invoice number`);
+        if (!row[`${key}Cheque`]) missingRefs.push(`${label} cheque number`);
+        const convertingDate = row[`${key}ConvertingDate`];
+        if (!convertingDate || !YMD_RE.test(convertingDate)) {
+          row[`${key}ConvertingDate`] = date;
+        }
+      }
+    }
+    if (missingRefs.length > 0) {
+      return res.status(400).json({
+        error: `When bags are 1 or more for a brand, invoice and cheque are required. Missing: ${missingRefs.join(', ')}.`,
+      });
+    }
+
+    stocks[idx] = row;
+    await writeStocks(stocks);
+    try {
+      await refreshLiveStockFromSources();
+    } catch (err) {
+      console.error('liveStock refresh after load update', err);
+    }
+    res.json(row);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Failed to update stock record' });
+  }
+});
+
+app.get('/api/messages/settings', async (req, res) => {
+  try {
+    const [emailConfig, companyData] = await Promise.all([readEmailConfig(), readCompanyData()]);
+    res.json({
+      emailConfig: maskEmailConfig(emailConfig),
+      companyData,
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Failed to load message settings' });
+  }
+});
+
+app.put('/api/messages/email-config', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const current = await readEmailConfig();
+    const host = body.host !== undefined ? String(body.host ?? '').trim() : current.host;
+    const user = body.user !== undefined ? String(body.user ?? '').trim() : current.user;
+    const from = body.from !== undefined ? String(body.from ?? '').trim() : current.from;
+    const fromName = body.fromName !== undefined ? String(body.fromName ?? '').trim() : current.fromName;
+    const port = body.port !== undefined ? parseInt(String(body.port), 10) : current.port;
+    const secure = body.secure !== undefined ? Boolean(body.secure) : current.secure;
+    const enabled = body.enabled !== undefined ? Boolean(body.enabled) : current.enabled;
+
+    let pass = current.pass;
+    if (body.pass !== undefined && String(body.pass).trim() !== '') {
+      pass = String(body.pass).trim();
+    }
+
+    if (enabled && (!host || !user || !pass)) {
+      return res.status(400).json({ error: 'host, user, and password are required when email is enabled' });
+    }
+
+    const next = {
+      enabled,
+      host,
+      port: Number.isFinite(port) && port > 0 ? port : 587,
+      secure,
+      user,
+      pass,
+      from: from || user,
+      fromName: fromName || 'Chaminda Stores',
+    };
+    await writeEmailConfig(next);
+    res.json({ emailConfig: maskEmailConfig(next) });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Failed to save email config' });
+  }
+});
+
+app.put('/api/messages/company-data', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const distributor = String(body.distributor ?? '').trim();
+    const company = String(body.company ?? '').trim();
+    if (!distributor || !company) {
+      return res.status(400).json({ error: 'distributor and company are required' });
+    }
+    const next = { distributor, company };
+    await writeCompanyData(next);
+    res.json(next);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Failed to save company data' });
+  }
+});
+
+app.get('/api/messages/sent-emails', async (req, res) => {
+  try {
+    const emails = await readSentEmails();
+    res.json(emails);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Failed to load sent emails' });
   }
 });
 

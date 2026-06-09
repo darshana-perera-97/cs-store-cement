@@ -20,6 +20,7 @@ const emptyForm = () => ({
   name: '',
   location: '',
   contactNumber: '',
+  email: '',
   pastBill: '',
 });
 
@@ -83,6 +84,7 @@ export default function CustomersPage() {
         r.name,
         r.location,
         r.contactNumber,
+        r.email,
         r.dueDate,
         String(r.remainingAmount ?? ''),
       ]);
@@ -128,6 +130,7 @@ export default function CustomersPage() {
           name: form.name.trim(),
           location: form.location.trim(),
           contactNumber: form.contactNumber.trim(),
+          email: form.email.trim(),
           pastBill: form.pastBill,
         }),
       });
@@ -182,7 +185,7 @@ export default function CustomersPage() {
             type="search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Name, location, phone, due date…"
+            placeholder="Name, location, phone, email, due date…"
             className={filterControl}
           />
         </label>
@@ -247,6 +250,7 @@ export default function CustomersPage() {
                       <p className="mt-0.5 text-xs text-slate-500">
                         {r.location}
                         {r.contactNumber ? ` · ${r.contactNumber}` : ''}
+                        {r.email ? ` · ${r.email}` : ''}
                       </p>
                     </td>
                     <td
@@ -357,6 +361,17 @@ export default function CustomersPage() {
                   className="mt-1 w-full rounded-xl border-0 bg-slate-100 px-3 py-2.5 text-sm ring-1 ring-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/35"
                   placeholder="e.g. 077 123 4567"
                   autoComplete="tel"
+                />
+              </label>
+              <label className="block text-sm font-medium text-slate-600">
+                Email
+                <input
+                  type="email"
+                  value={form.email}
+                  onChange={(e) => handleFormChange('email', e.target.value)}
+                  className="mt-1 w-full rounded-xl border-0 bg-slate-100 px-3 py-2.5 text-sm ring-1 ring-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/35"
+                  placeholder="e.g. shop@example.com"
+                  autoComplete="email"
                 />
               </label>
               <label className="block text-sm font-medium text-slate-600">

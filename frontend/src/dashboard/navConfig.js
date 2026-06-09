@@ -45,6 +45,11 @@ export const DASHBOARD_NAV = [
     icon: 'gift',
   },
   {
+    to: '/dashboard/messages',
+    label: 'Messages',
+    icon: 'messages',
+  },
+  {
     to: '/dashboard/users',
     label: 'Users',
     icon: 'user',
@@ -53,5 +58,10 @@ export const DASHBOARD_NAV = [
     to: '/dashboard/cash-out',
     label: 'Cash Out',
     icon: 'cash-out',
+  },
+  {
+    to: '/dashboard/incentive',
+    label: 'Incentive',
+    icon: 'incentive',
   },
 ];

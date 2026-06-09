@@ -18,28 +18,35 @@ import RowDetailModal, { detailRowAttrs } from './RowDetailModal';
 const apiBase = getApiBase();
 
 const VEHICLE_OPTIONS = ['LA 9899', 'GQ 4665', 'PD 1306', 'Other'];
+const DEFAULT_MARGIN_PER_BAG = 70;
 
 const emptyForm = () => ({
   date: new Date().toISOString().slice(0, 10),
   stockId: '',
   vehicleNumber: '',
+  transportCostPerBag: '',
+  marginPerBag: String(DEFAULT_MARGIN_PER_BAG),
   tokyoBags: '',
   tokyoCost: '',
+  tokyoCutOffPrice: '',
   tokyoInvoice: '',
   tokyoCheque: '',
   tokyoConvertingDate: '',
   samudraBags: '',
   samudraCost: '',
+  samudraCutOffPrice: '',
   samudraInvoice: '',
   samudraCheque: '',
   samudraConvertingDate: '',
   atlasBags: '',
   atlasCost: '',
+  atlasCutOffPrice: '',
   atlasInvoice: '',
   atlasCheque: '',
   atlasConvertingDate: '',
   nipponBags: '',
   nipponCost: '',
+  nipponCutOffPrice: '',
   nipponInvoice: '',
   nipponCheque: '',
   nipponConvertingDate: '',
@@ -90,6 +97,7 @@ export default function LoadsPage() {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [detailRow, setDetailRow] = useState(null);
+  const [editingLoadId, setEditingLoadId] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -165,6 +173,7 @@ export default function LoadsPage() {
   );
 
   const openModal = () => {
+    setEditingLoadId('');
     setForm({
       ...emptyForm(),
       stockId: nextSuggestedStockId(rows),
@@ -176,6 +185,45 @@ export default function LoadsPage() {
   const closeModal = () => {
     setModalOpen(false);
     setSaveError(null);
+    setEditingLoadId('');
+  };
+
+  const openEditModal = (row) => {
+    if (!row || !row.id) return;
+    setEditingLoadId(String(row.id));
+    setForm({
+      date: String(row.date ?? '').slice(0, 10),
+      stockId: String(row.stockId ?? ''),
+      vehicleNumber: String(row.vehicleNumber ?? ''),
+      transportCostPerBag: String(row.transportCostPerBag ?? ''),
+      marginPerBag: String(row.marginPerBag ?? DEFAULT_MARGIN_PER_BAG),
+      tokyoBags: String(row.tokyoBags ?? ''),
+      tokyoCost: String(row.tokyoCost ?? ''),
+      tokyoCutOffPrice: String(row.tokyoCutOffPrice ?? ''),
+      tokyoInvoice: String(row.tokyoInvoice ?? ''),
+      tokyoCheque: String(row.tokyoCheque ?? ''),
+      tokyoConvertingDate: String(row.tokyoConvertingDate ?? '').slice(0, 10),
+      samudraBags: String(row.samudraBags ?? ''),
+      samudraCost: String(row.samudraCost ?? ''),
+      samudraCutOffPrice: String(row.samudraCutOffPrice ?? ''),
+      samudraInvoice: String(row.samudraInvoice ?? ''),
+      samudraCheque: String(row.samudraCheque ?? ''),
+      samudraConvertingDate: String(row.samudraConvertingDate ?? '').slice(0, 10),
+      atlasBags: String(row.atlasBags ?? ''),
+      atlasCost: String(row.atlasCost ?? ''),
+      atlasCutOffPrice: String(row.atlasCutOffPrice ?? ''),
+      atlasInvoice: String(row.atlasInvoice ?? ''),
+      atlasCheque: String(row.atlasCheque ?? ''),
+      atlasConvertingDate: String(row.atlasConvertingDate ?? '').slice(0, 10),
+      nipponBags: String(row.nipponBags ?? ''),
+      nipponCost: String(row.nipponCost ?? ''),
+      nipponCutOffPrice: String(row.nipponCutOffPrice ?? ''),
+      nipponInvoice: String(row.nipponInvoice ?? ''),
+      nipponCheque: String(row.nipponCheque ?? ''),
+      nipponConvertingDate: String(row.nipponConvertingDate ?? '').slice(0, 10),
+    });
+    setSaveError(null);
+    setModalOpen(true);
   };
 
   const handleFormChange = (field, value) => {
@@ -206,34 +254,43 @@ export default function LoadsPage() {
     setSaving(true);
     setSaveError(null);
     try {
-      const res = await fetch(`${apiBase}/api/stocks`, {
-        method: 'POST',
+      const isEditing = Boolean(editingLoadId);
+      const res = await fetch(
+        isEditing ? `${apiBase}/api/stocks/${encodeURIComponent(editingLoadId)}` : `${apiBase}/api/stocks`,
+        {
+        method: isEditing ? 'PATCH' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          addedBy: username,
+          ...(isEditing ? { updatedBy: username } : { addedBy: username }),
           date: form.date,
           stockId: form.stockId.trim(),
           vehicleNumber: form.vehicleNumber.trim(),
           tokyoBags: form.tokyoBags,
           tokyoCost: form.tokyoCost,
+          tokyoCutOffPrice: form.tokyoCutOffPrice,
           tokyoInvoice: form.tokyoInvoice,
           tokyoCheque: form.tokyoCheque,
           tokyoConvertingDate: form.tokyoConvertingDate,
           samudraBags: form.samudraBags,
           samudraCost: form.samudraCost,
+          samudraCutOffPrice: form.samudraCutOffPrice,
           samudraInvoice: form.samudraInvoice,
           samudraCheque: form.samudraCheque,
           samudraConvertingDate: form.samudraConvertingDate,
           atlasBags: form.atlasBags,
           atlasCost: form.atlasCost,
+          atlasCutOffPrice: form.atlasCutOffPrice,
           atlasInvoice: form.atlasInvoice,
           atlasCheque: form.atlasCheque,
           atlasConvertingDate: form.atlasConvertingDate,
           nipponBags: form.nipponBags,
           nipponCost: form.nipponCost,
+          nipponCutOffPrice: form.nipponCutOffPrice,
           nipponInvoice: form.nipponInvoice,
           nipponCheque: form.nipponCheque,
           nipponConvertingDate: form.nipponConvertingDate,
+          transportCostPerBag: form.transportCostPerBag,
+          marginPerBag: form.marginPerBag,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -475,7 +532,7 @@ export default function LoadsPage() {
           <button type="button" className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" aria-label="Close" onClick={closeModal} />
           <div className={modalPanelClass4xl}>
             <h2 id="loads-modal-title" className="text-lg font-bold text-slate-900">
-              Add a stock load
+              {editingLoadId ? 'Edit stock load' : 'Add a stock load'}
             </h2>
             <p className="mt-1 text-sm text-slate-500">Recorded as user: {getUsername() || '—'}</p>
             <form className="mt-5 space-y-4" onSubmit={handleSubmit}>
@@ -525,6 +582,38 @@ export default function LoadsPage() {
                   </select>
                 </label>
               </div>
+              <div className="rounded-xl border border-indigo-100 bg-indigo-50/40 p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-indigo-800">Incentive pricing</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Used on the Incentive page to calculate transport, margin, and unloading price per bag.
+                </p>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <label className="block text-sm font-medium text-slate-600">
+                    Transport cost per bag (LKR)
+                    <input
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      value={form.transportCostPerBag}
+                      onChange={(e) => handleFormChange('transportCostPerBag', e.target.value)}
+                      className="mt-1 w-full rounded-xl border-0 bg-white px-3 py-2.5 text-sm tabular-nums ring-1 ring-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/35"
+                      placeholder="0"
+                    />
+                  </label>
+                  <label className="block text-sm font-medium text-slate-600">
+                    Margin per bag (LKR)
+                    <input
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      value={form.marginPerBag}
+                      onChange={(e) => handleFormChange('marginPerBag', e.target.value)}
+                      className="mt-1 w-full rounded-xl border-0 bg-white px-3 py-2.5 text-sm tabular-nums ring-1 ring-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/35"
+                    />
+                    <span className="mt-1 block text-xs font-normal text-slate-400">Default {DEFAULT_MARGIN_PER_BAG} LKR</span>
+                  </label>
+                </div>
+              </div>
               <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-4">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                   Cement bags, cost, invoice & cheque (per brand)
@@ -542,7 +631,7 @@ export default function LoadsPage() {
                       className="rounded-lg border border-slate-100 bg-white/90 p-3 shadow-sm ring-1 ring-slate-100/80"
                     >
                       <p className="mb-2 text-sm font-semibold text-slate-800">{b.label}</p>
-                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-5">
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-6">
                         <label className="text-xs text-slate-500">
                           Bags
                           <input
@@ -563,6 +652,18 @@ export default function LoadsPage() {
                             value={form[`${b.key}Cost`]}
                             onChange={(e) => handleFormChange(`${b.key}Cost`, e.target.value)}
                             className="mt-0.5 w-full rounded-lg border-0 bg-slate-50 px-2 py-2 text-sm tabular-nums ring-1 ring-slate-200"
+                          />
+                        </label>
+                        <label className="text-xs text-slate-500">
+                          Cut-off price (per bag)
+                          <input
+                            type="number"
+                            min={0}
+                            step={0.01}
+                            value={form[`${b.key}CutOffPrice`]}
+                            onChange={(e) => handleFormChange(`${b.key}CutOffPrice`, e.target.value)}
+                            className="mt-0.5 w-full rounded-lg border-0 bg-slate-50 px-2 py-2 text-sm tabular-nums ring-1 ring-slate-200"
+                            placeholder=""
                           />
                         </label>
                         <label className={`block text-xs ${needRefs ? 'font-medium text-slate-700' : 'text-slate-500'}`}>
@@ -619,7 +720,7 @@ export default function LoadsPage() {
                   disabled={saving}
                   className="rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 px-4 py-2.5 text-sm font-semibold text-white shadow-md disabled:opacity-60"
                 >
-                  {saving ? 'Saving…' : 'Save record'}
+                  {saving ? 'Saving…' : editingLoadId ? 'Update record' : 'Save record'}
                 </button>
               </div>
             </form>
@@ -627,7 +728,28 @@ export default function LoadsPage() {
         </div>
       ) : null}
 
-      <RowDetailModal open={!!detailRow} row={detailRow} variant="load" onClose={() => setDetailRow(null)} />
+      <RowDetailModal
+        open={!!detailRow}
+        row={detailRow}
+        variant="load"
+        onClose={() => setDetailRow(null)}
+        actions={
+          detailRow?.id ? (
+            <div className="mt-4">
+              <button
+                type="button"
+                onClick={() => {
+                  openEditModal(detailRow);
+                  setDetailRow(null);
+                }}
+                className="w-full rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2.5 text-sm font-semibold text-indigo-800 ring-1 ring-indigo-100 hover:bg-indigo-100"
+              >
+                Edit load
+              </button>
+            </div>
+          ) : null
+        }
+      />
     </div>
   );
 }

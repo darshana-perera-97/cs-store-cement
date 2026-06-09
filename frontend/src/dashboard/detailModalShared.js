@@ -103,6 +103,7 @@ export function DetailModalShell({
   titleId = 'row-detail-modal-title',
   children,
   actions = null,
+  panelSizeClassName = 'max-w-lg',
 }) {
   useEffect(() => {
     if (!open) return undefined;
@@ -123,7 +124,7 @@ export function DetailModalShell({
       aria-labelledby={titleId}
     >
       <button type="button" className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" aria-label="Close" onClick={onClose} />
-      <div className="relative z-10 w-full min-h-0 max-w-lg overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-slate-200">
+      <div className={`relative z-10 w-full min-h-0 overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-slate-200 ${panelSizeClassName}`}>
         <div className="min-h-0 max-h-[min(90vh,calc(100dvh-3rem))] overflow-y-auto overscroll-contain p-6">
           <h2 id={titleId} className="text-lg font-bold text-slate-900">
             {title}

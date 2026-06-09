@@ -38,7 +38,7 @@ export function getRowDetailMeta(variant, row) {
     case 'customer':
       return {
         title: 'Customer details',
-        subtitle: [row.location, row.contactNumber].filter(Boolean).join(' · ') || row.name || null,
+        subtitle: [row.location, row.contactNumber, row.email].filter(Boolean).join(' · ') || row.name || null,
       };
     case 'payment':
       return {
@@ -86,6 +86,11 @@ export function getRowDetailMeta(variant, row) {
           .filter(Boolean)
           .join(' · ') || null,
       };
+    case 'incentive':
+      return {
+        title: 'Incentive details',
+        subtitle: [row.stockId, row.brandLabel, row.date].filter((v) => v && v !== '—').join(' · ') || null,
+      };
     default:
       return { title: 'Details', subtitle: null };
   }
@@ -117,9 +122,83 @@ export function RowDetailContent({ variant, row }) {
       return <BankDailyDetailContent row={row} />;
     case 'bankCheque':
       return <BankChequeDetailContent row={row} />;
+    case 'incentive':
+      return <IncentiveDetailContent row={row} />;
     default:
       return null;
   }
+}
+
+function formatMoneyOrDash(n) {
+  if (n == null || !Number.isFinite(Number(n))) return '—';
+  return formatMoney(n);
+}
+
+function IncentiveDetailContent({ row }) {
+  const brand = BRANDS.find((b) => b.key === row.brandKey);
+
+  return (
+    <>
+      <SummaryGrid>
+        <SummaryField label="Date" value={displayText(row.date)} />
+        <SummaryField label="Stock ID" value={displayText(row.stockId)} />
+        <SummaryField label="Bag type" value={displayText(row.brandLabel)} />
+        <SummaryField label="Vehicle" value={displayText(row.vehicleNumber)} />
+        <SummaryField label="Added by" value={displayText(row.addedBy)} />
+        <SummaryField label="Bag amounts" value={Number(row.bags || 0).toLocaleString()} valueClassName="tabular-nums" />
+        <SummaryField label="Total cost" value={formatMoney(row.totalCost)} valueClassName="tabular-nums" />
+        <SummaryField label="Per bag cost" value={formatMoney(row.perBagCost)} valueClassName="tabular-nums" />
+        <SummaryField label="Invoice number" value={displayText(row.invoiceNumber)} />
+        <SummaryField label="Cheque number" value={displayText(row.chequeNumber)} />
+        <SummaryField label="Converting date" value={displayText(row.convertingDate)} valueClassName="tabular-nums" />
+        <SummaryField label="Transport cost" value={formatMoneyOrDash(row.transportCost)} valueClassName="tabular-nums" />
+        <SummaryField label="Transport / bag" value={formatMoneyOrDash(row.transportPerBag)} valueClassName="tabular-nums" />
+        <SummaryField label="Margin / bag" value={formatMoneyOrDash(row.margin)} valueClassName="tabular-nums" />
+        <SummaryField
+          label="Total load amount"
+          value={formatMoney(row.totalLoadAmount)}
+          className="col-span-2 bg-slate-100/80"
+          valueClassName="tabular-nums"
+        />
+      </SummaryGrid>
+      <div className="mt-4 rounded-2xl bg-gradient-to-br from-indigo-50 via-violet-50 to-sky-50 px-4 py-4 ring-2 ring-indigo-200/50 shadow-sm shadow-indigo-100/40">
+        <p className="text-xs font-semibold uppercase tracking-wider text-indigo-700">Unloading price</p>
+        <p className="mt-2 text-2xl font-bold tabular-nums tracking-tight text-indigo-950">
+          {formatMoneyOrDash(row.unloadingPrice)}
+        </p>
+        <p className="mt-1 text-xs text-indigo-800/70">
+          {row.unloadingPrice != null
+            ? 'Per bag · purchase cost + transport + margin'
+            : 'Add bag cost on the load to calculate'}
+        </p>
+      </div>
+      {brand && row.sourceLoad ? (
+        <div className="mt-5">
+          <BrandSections title="Brand on this load">
+            <BrandSectionShell brand={brand} active>
+              <dl className="grid grid-cols-2 gap-px bg-slate-100 sm:grid-cols-5">
+                <BrandFieldCell brand={brand} lead label="Bags" value={row.bags} valueClassName="tabular-nums font-semibold" />
+                <BrandFieldCell
+                  brand={brand}
+                  label="Cost"
+                  value={formatAmount(row.totalCost)}
+                  valueClassName="tabular-nums font-medium"
+                />
+                <BrandFieldCell brand={brand} label="Invoice" value={displayText(row.invoiceNumber)} valueClassName="text-slate-800" />
+                <BrandFieldCell brand={brand} label="Cheque" value={displayText(row.chequeNumber)} valueClassName="text-slate-800" />
+                <BrandFieldCell
+                  brand={brand}
+                  label="Converting date"
+                  value={displayText(row.convertingDate)}
+                  valueClassName="tabular-nums text-slate-800"
+                />
+              </dl>
+            </BrandSectionShell>
+          </BrandSections>
+        </div>
+      ) : null}
+    </>
+  );
 }
 
 function LoadDetailContent({ row }) {
@@ -132,6 +211,16 @@ function LoadDetailContent({ row }) {
         <SummaryField label="Stock ID" value={stockId} />
         <SummaryField label="Vehicle" value={displayText(row.vehicleNumber)} />
         <SummaryField label="Added by" value={displayText(row.addedBy)} />
+        <SummaryField
+          label="Transport / bag"
+          value={formatMoney(row.transportCostPerBag)}
+          valueClassName="tabular-nums"
+        />
+        <SummaryField
+          label="Margin / bag"
+          value={formatMoney(row.marginPerBag ?? 70)}
+          valueClassName="tabular-nums"
+        />
         <SummaryField
           label="Total amount"
           value={formatMoney(row.totalAmount)}
@@ -257,6 +346,7 @@ function CustomerDetailContent({ row }) {
         <SummaryField label="Customer" value={displayText(row.name)} className="col-span-2" />
         <SummaryField label="Location" value={displayText(row.location)} />
         <SummaryField label="Contact" value={displayText(row.contactNumber)} />
+        <SummaryField label="Email" value={displayText(row.email)} />
         <SummaryField
           label="Due date"
           value={displayText(row.dueDate)}

@@ -30,9 +30,19 @@ const {
   DEFAULT_OVERDUE_DAYS,
 } = require('./overdueDatesStore');
 const { readEmailConfig, writeEmailConfig, maskEmailConfig } = require('./emailConfigsStore');
+const { readWhatsAppConfig, writeWhatsAppConfig } = require('./whatsappConfigsStore');
 const { readCompanyData, writeCompanyData } = require('./companyDataStore');
 const { readSentEmails } = require('./sentEmailsStore');
+const { readSentWhatsapp } = require('./sentWhatsappStore');
 const { notifyBillEmail, notifyPaymentEmail, notifyPromotionEmail } = require('./emailService');
+const {
+  getWhatsAppStatus,
+  startWhatsAppClient,
+  applyWhatsAppConfigChange,
+  notifyBillWhatsApp,
+  notifyPaymentWhatsApp,
+  notifyPromotionWhatsApp,
+} = require('./whatsappService');
 
 function enrichCustomerBalance(customer, bills, payments, overdueDates = {}) {
   const { amountToPay, overpaymentAmount } = computeCustomerBalance(customer, bills, payments);
@@ -1015,6 +1025,11 @@ app.post('/api/payments', async (req, res) => {
         console.error('payment email notification', err),
       );
     }
+    if (cust.contactNumber) {
+      notifyPaymentWhatsApp(cust, row, cust.remainingAmount).catch((err) =>
+        console.error('payment whatsapp notification', err),
+      );
+    }
     res.status(201).json(row);
   } catch (e) {
     console.error(e);
@@ -1316,6 +1331,11 @@ app.post('/api/promotions', async (req, res) => {
         console.error('promotion email notification', err),
       );
     }
+    if (cust.contactNumber) {
+      notifyPromotionWhatsApp(cust, row).catch((err) =>
+        console.error('promotion whatsapp notification', err),
+      );
+    }
     res.status(201).json(row);
   } catch (e) {
     console.error(e);
@@ -1464,6 +1484,11 @@ app.post('/api/bills', async (req, res) => {
     if (custForEmail?.email) {
       notifyBillEmail(custForEmail, row, custForEmail.remainingAmount).catch((err) =>
         console.error('bill email notification', err),
+      );
+    }
+    if (custForEmail?.contactNumber) {
+      notifyBillWhatsApp(custForEmail, row, custForEmail.remainingAmount).catch((err) =>
+        console.error('bill whatsapp notification', err),
       );
     }
 
@@ -1796,9 +1821,15 @@ app.patch('/api/stocks/:id', async (req, res) => {
 
 app.get('/api/messages/settings', async (req, res) => {
   try {
-    const [emailConfig, companyData] = await Promise.all([readEmailConfig(), readCompanyData()]);
+    const [emailConfig, whatsappConfig, companyData] = await Promise.all([
+      readEmailConfig(),
+      readWhatsAppConfig(),
+      readCompanyData(),
+    ]);
     res.json({
       emailConfig: maskEmailConfig(emailConfig),
+      whatsappConfig,
+      whatsappStatus: getWhatsAppStatus(),
       companyData,
     });
   } catch (e) {
@@ -1873,6 +1904,47 @@ app.get('/api/messages/sent-emails', async (req, res) => {
   }
 });
 
+app.get('/api/messages/whatsapp-status', async (req, res) => {
+  try {
+    const whatsappConfig = await readWhatsAppConfig();
+    res.json({
+      enabled: Boolean(whatsappConfig.enabled),
+      ...getWhatsAppStatus(),
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Failed to load WhatsApp status' });
+  }
+});
+
+app.put('/api/messages/whatsapp-config', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const current = await readWhatsAppConfig();
+    const enabled = body.enabled !== undefined ? Boolean(body.enabled) : current.enabled;
+    const next = { enabled };
+    await writeWhatsAppConfig(next);
+    const whatsappStatus = await applyWhatsAppConfigChange(enabled);
+    res.json({
+      whatsappConfig: next,
+      whatsappStatus,
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Failed to save WhatsApp config' });
+  }
+});
+
+app.get('/api/messages/sent-whatsapp', async (req, res) => {
+  try {
+    const messages = await readSentWhatsapp();
+    res.json(messages);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Failed to load sent WhatsApp history' });
+  }
+});
+
 /** CRA production build: same process serves API + static assets + client routes (see SPA fallback below). */
 const FRONTEND_BUILD = path.resolve(
   process.env.FRONTEND_BUILD_DIR || path.join(__dirname, '..', 'frontend', 'build')
@@ -1908,4 +1980,11 @@ app.listen(PORT, () => {
   if (fs.existsSync(FRONTEND_INDEX)) {
     console.log(`Serving SPA from ${FRONTEND_BUILD}`);
   }
+  readWhatsAppConfig()
+    .then((config) => {
+      if (config.enabled) {
+        startWhatsAppClient().catch((err) => console.error('whatsapp startup', err));
+      }
+    })
+    .catch((err) => console.error('whatsapp config read', err));
 });

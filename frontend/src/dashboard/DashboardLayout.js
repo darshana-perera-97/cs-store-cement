@@ -85,9 +85,71 @@ function getSectionTitle(pathname) {
   return found ? found.label : 'Dashboard';
 }
 
+const WHATSAPP_STATE_LABELS = {
+  idle: 'Not started',
+  initializing: 'Starting…',
+  qr: 'Scan QR',
+  authenticated: 'Connecting…',
+  ready: 'Connected',
+  disconnected: 'Disconnected',
+  auth_failure: 'Auth failed',
+};
+
+function WhatsAppNavStatus({ enabled, state, connected }) {
+  const label = !enabled
+    ? 'Off'
+    : connected
+      ? 'Connected'
+      : WHATSAPP_STATE_LABELS[state] || state || 'Unknown';
+
+  const tone = !enabled
+    ? 'bg-slate-100 text-slate-600 ring-slate-200'
+    : connected
+      ? 'bg-emerald-50 text-emerald-800 ring-emerald-200'
+      : state === 'qr' || state === 'initializing' || state === 'authenticated'
+        ? 'bg-amber-50 text-amber-800 ring-amber-200'
+        : 'bg-rose-50 text-rose-800 ring-rose-200';
+
+  const dotTone = !enabled
+    ? 'bg-slate-400'
+    : connected
+      ? 'bg-emerald-500'
+      : state === 'qr' || state === 'initializing' || state === 'authenticated'
+        ? 'bg-amber-500'
+        : 'bg-rose-500';
+
+  const title = !enabled
+    ? 'WhatsApp notifications are disabled. Open Messages to enable.'
+    : connected
+      ? 'WhatsApp is connected and ready to send notifications.'
+      : `WhatsApp: ${label}. Open Messages to finish setup.`;
+
+  return (
+    <NavLink
+      to="/dashboard/messages"
+      title={title}
+      className={`inline-flex items-center gap-2 rounded-full px-3 py-2 text-xs font-semibold ring-1 transition hover:opacity-90 ${tone}`}
+    >
+      <span className="relative flex h-2 w-2 shrink-0">
+        {connected ? (
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+        ) : null}
+        <span className={`relative inline-flex h-2 w-2 rounded-full ${dotTone}`} />
+      </span>
+      <span className="hidden sm:inline">WhatsApp</span>
+      <span className="tabular-nums">{label}</span>
+    </NavLink>
+  );
+}
+
 export default function DashboardLayout() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [sidebarCashSummary, setSidebarCashSummary] = useState(null);
+  const [whatsappStatus, setWhatsappStatus] = useState({
+    enabled: false,
+    state: 'idle',
+    connected: false,
+  });
   const navigate = useNavigate();
   const location = useLocation();
   const section = getSectionTitle(location.pathname);
@@ -124,6 +186,34 @@ export default function DashboardLayout() {
     }
     load();
     const id = window.setInterval(load, 15000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, []);
+
+  useEffect(() => {
+    const apiRoot = getApiBase() || '';
+    let cancelled = false;
+    async function pollWhatsApp() {
+      try {
+        const res = await fetch(`${apiRoot}/api/messages/whatsapp-status`);
+        if (!cancelled && res.ok) {
+          const data = await res.json();
+          setWhatsappStatus({
+            enabled: Boolean(data.enabled),
+            state: data.state ?? 'idle',
+            connected: Boolean(data.connected),
+          });
+        }
+      } catch {
+        if (!cancelled) {
+          setWhatsappStatus({ enabled: false, state: 'idle', connected: false });
+        }
+      }
+    }
+    pollWhatsApp();
+    const id = window.setInterval(pollWhatsApp, 3000);
     return () => {
       cancelled = true;
       window.clearInterval(id);
@@ -289,6 +379,11 @@ export default function DashboardLayout() {
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+              <WhatsAppNavStatus
+                enabled={whatsappStatus.enabled}
+                state={whatsappStatus.state}
+                connected={whatsappStatus.connected}
+              />
               <div className="relative min-w-[200px] flex-1 sm:flex-initial sm:min-w-[220px]">
                 <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
                   <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

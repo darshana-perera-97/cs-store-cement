@@ -46,6 +46,24 @@ function bagLines(record) {
   return lines;
 }
 
+/** Bill emails: bag type and count only (no unit price or line totals). */
+function billBagLines(record) {
+  const lines = [];
+  for (const key of Object.keys(BRAND_LABELS)) {
+    const bags = Number(record[`${key}Bags`]) || 0;
+    if (bags > 0) {
+      lines.push(
+        { label: 'Bag type', value: BRAND_LABELS[key] },
+        {
+          label: 'Bag amount',
+          value: `${bags.toLocaleString()} bag${bags === 1 ? '' : 's'}`,
+        },
+      );
+    }
+  }
+  return lines;
+}
+
 function promoBagLines(record) {
   const lines = [];
   for (const key of Object.keys(BRAND_LABELS)) {
@@ -128,15 +146,13 @@ function buildBillEmail({ customer, bill, remainingAmount, company }) {
   const rows = [
     { label: 'Customer', value: customer.name },
     { label: 'Date', value: formatDate(bill.date) },
-    ...bagLines(bill),
-    { label: 'Total amount', value: formatMoney(bill.totalAmount) },
+    ...billBagLines(bill),
   ];
-  if (bill.enteredBy) rows.push({ label: 'Recorded by', value: bill.enteredBy });
 
   return {
-    subject: `Credit sale — ${formatMoney(bill.totalAmount)} · ${customer.name}`,
+    subject: `Credit sale · ${customer.name}`,
     html: emailLayout({
-      preheader: `A new credit sale of ${formatMoney(bill.totalAmount)} has been recorded for ${customer.name}.`,
+      preheader: `A new credit sale has been recorded for ${customer.name}.`,
       accent: '#4f46e5',
       accentLight: '#eef2ff',
       title: 'Credit sale recorded',

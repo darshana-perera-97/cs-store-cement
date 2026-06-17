@@ -14,6 +14,7 @@ const TABLE_HEAD = [
     'Selling price per bag',
     'Pure incentive per bag',
     'Total Incentive',
+    'Cumulative sum',
   ],
 ];
 
@@ -45,13 +46,13 @@ function formatFilterLine(options = {}) {
   return parts.join(' · ');
 }
 
-function shopLocationLabel(shop, location) {
+export function shopLocationLabel(shop, location) {
   const name = String(shop ?? '').trim() || '—';
   const loc = String(location ?? '').trim();
   return loc ? `${name} — ${loc}` : name;
 }
 
-function resolveLocation(shop, locationMap) {
+export function resolveLocation(shop, locationMap) {
   const key = String(shop ?? '').trim().toLowerCase();
   if (!key || key === '—') return '';
   return locationMap?.get(key) || '';
@@ -84,11 +85,17 @@ function buildCompanyRows(rows, locationMap) {
   });
 }
 
+function cumulativeCell(cumulative, hasCumulative) {
+  return hasCumulative ? round2(cumulative) : '';
+}
+
 function buildPdfTableBody(companyRows) {
   const body = [];
   const subtotalRowIndices = new Set();
   const groups = new Map();
   const shopOrder = [];
+  let cumulative = 0;
+  let hasCumulative = false;
 
   for (const row of companyRows) {
     if (!groups.has(row.shop)) {
@@ -105,6 +112,10 @@ function buildPdfTableBody(companyRows) {
     let hasShopTotalIncentive = false;
 
     for (const r of shopRows) {
+      if (r.totalIncentive != null && Number.isFinite(Number(r.totalIncentive))) {
+        cumulative += Number(r.totalIncentive);
+        hasCumulative = true;
+      }
       body.push([
         r.date,
         r.shopLocation,
@@ -114,6 +125,7 @@ function buildPdfTableBody(companyRows) {
         r.sellingPricePerBag,
         r.pureIncentivePerBag,
         r.totalIncentive,
+        cumulativeCell(cumulative, hasCumulative),
       ]);
       shopBags += r.bags;
       if (r.totalIncentive != null && Number.isFinite(Number(r.totalIncentive))) {
@@ -132,10 +144,11 @@ function buildPdfTableBody(companyRows) {
       '',
       '',
       hasShopTotalIncentive ? round2(shopTotalIncentive) : '',
+      cumulativeCell(cumulative, hasCumulative),
     ]);
   }
 
-  return { body, subtotalRowIndices };
+  return { body, subtotalRowIndices, cumulative, hasCumulative };
 }
 
 function computeTotals(rows) {
@@ -195,7 +208,7 @@ export function downloadIncentiveCompanyPdf(distributionRows, locationMap, optio
   const { generatedAt = new Date(), dateFrom = '', dateTo = '', search = '' } = options;
   const companyRows = buildCompanyRows(distributionRows, locationMap);
   const totals = computeTotals(companyRows);
-  const { body, subtotalRowIndices } = buildPdfTableBody(companyRows);
+  const { body, subtotalRowIndices, cumulative, hasCumulative } = buildPdfTableBody(companyRows);
 
   const foot = [
     [
@@ -207,6 +220,7 @@ export function downloadIncentiveCompanyPdf(distributionRows, locationMap, optio
       '',
       '',
       totals.hasTotalIncentive ? totals.totalIncentive : '',
+      cumulativeCell(cumulative, hasCumulative),
     ],
   ];
 
@@ -222,7 +236,7 @@ export function downloadIncentiveCompanyPdf(distributionRows, locationMap, optio
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(16);
   doc.setTextColor(15, 23, 42);
-  doc.text('Incentive calculator — Company', MARGIN, 16);
+  doc.text('Special Price Calculator — Company', MARGIN, 16);
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
@@ -241,12 +255,12 @@ export function downloadIncentiveCompanyPdf(distributionRows, locationMap, optio
   }
   doc.setTextColor(0, 0, 0);
 
-  const amountCols = new Set([4, 5, 6, 7]);
+  const amountCols = new Set([4, 5, 6, 7, 8]);
   const formatAmounts = amountCellHook(amountCols);
 
   autoTable(doc, {
     head: TABLE_HEAD,
-    body: body.length > 0 ? body : [['—', '—', '—', 0, '', '', '', '']],
+    body: body.length > 0 ? body : [['—', '—', '—', 0, '', '', '', '', '']],
     foot,
     startY: startY + 2,
     margin: { top: startY + 2, left: MARGIN, right: MARGIN, bottom: 16 },
@@ -264,14 +278,15 @@ export function downloadIncentiveCompanyPdf(distributionRows, locationMap, optio
     },
     alternateRowStyles: { fillColor: [248, 250, 252] },
     columnStyles: {
-      0: { cellWidth: contentW * 0.08 },
-      1: { cellWidth: contentW * 0.22 },
-      2: { cellWidth: contentW * 0.1 },
-      3: { halign: 'right', cellWidth: contentW * 0.08 },
-      4: { halign: 'right', cellWidth: contentW * 0.13 },
-      5: { halign: 'right', cellWidth: contentW * 0.13 },
-      6: { halign: 'right', cellWidth: contentW * 0.13 },
-      7: { halign: 'right', cellWidth: contentW * 0.13 },
+      0: { cellWidth: contentW * 0.07 },
+      1: { cellWidth: contentW * 0.2 },
+      2: { cellWidth: contentW * 0.09 },
+      3: { halign: 'right', cellWidth: contentW * 0.07 },
+      4: { halign: 'right', cellWidth: contentW * 0.11 },
+      5: { halign: 'right', cellWidth: contentW * 0.11 },
+      6: { halign: 'right', cellWidth: contentW * 0.11 },
+      7: { halign: 'right', cellWidth: contentW * 0.11 },
+      8: { halign: 'right', cellWidth: contentW * 0.13 },
     },
     showHead: 'everyPage',
     didParseCell(data) {
@@ -304,19 +319,27 @@ export function downloadIncentiveCompanyPdf(distributionRows, locationMap, optio
 export function downloadIncentiveCompanyExcel(distributionRows, locationMap, options = {}) {
   const { generatedAt = new Date(), dateFrom = '', dateTo = '' } = options;
   const companyRows = buildCompanyRows(distributionRows, locationMap);
+  const totals = computeTotals(companyRows);
+  const { body, cumulative, hasCumulative } = buildPdfTableBody(companyRows);
   const head = TABLE_HEAD[0];
   const sheetData = [
     head,
-    ...companyRows.map((r) => [
-      r.date,
-      r.shopLocation,
-      r.brandLabel,
-      r.bags,
-      r.cutOffPrice ?? '',
-      r.sellingPricePerBag ?? '',
-      r.pureIncentivePerBag ?? '',
-      r.totalIncentive ?? '',
-    ]),
+    ...body,
+    ...(body.length > 0
+      ? [
+          [
+            'Grand total',
+            '',
+            '',
+            totals.bags,
+            '',
+            '',
+            '',
+            totals.hasTotalIncentive ? totals.totalIncentive : '',
+            cumulativeCell(cumulative, hasCumulative),
+          ],
+        ]
+      : []),
   ];
 
   const worksheet = XLSX.utils.aoa_to_sheet(sheetData);
@@ -329,9 +352,10 @@ export function downloadIncentiveCompanyExcel(distributionRows, locationMap, opt
     { wch: 18 },
     { wch: 20 },
     { wch: 16 },
+    { wch: 16 },
   ];
   const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheet, 'Incentive calculator');
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Special Price Calculator');
   const { rangeSlug, safeDate } = fileSlug({ dateFrom, dateTo, generatedAt });
   XLSX.writeFile(workbook, `incentive-company-${rangeSlug}-${safeDate}.xlsx`);
 }

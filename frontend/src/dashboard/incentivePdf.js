@@ -415,7 +415,7 @@ export function downloadIncentiveCalculatorPdf(distributionRows, options = {}) {
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(16);
   doc.setTextColor(15, 23, 42);
-  doc.text('Incentive calculator', MARGIN, 16);
+  doc.text('Special Price Calculator', MARGIN, 16);
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
@@ -436,7 +436,7 @@ export function downloadIncentiveCalculatorPdf(distributionRows, options = {}) {
 
   y = drawSectionTitle(
     doc,
-    'Incentive calculator',
+    'Special Price Calculator',
     '',
     y + 2,
     contentW,
@@ -453,7 +453,7 @@ export function downloadIncentiveCalculatorPdf(distributionRows, options = {}) {
   const rangeSlug =
     dateFrom && dateTo ? `${dateFrom}_to_${dateTo}` : dateFrom || dateTo || 'all-dates';
   const safeDate = generatedAt.toISOString().slice(0, 10);
-  doc.save(`incentive-calculator-${rangeSlug}-${safeDate}.pdf`);
+  doc.save(`special-price-calculator-${rangeSlug}-${safeDate}.pdf`);
 }
 
 /**
@@ -506,7 +506,7 @@ export function downloadIncentivePdf(costRows, distributionRows, options = {}) {
 
   y = drawSectionTitle(
     doc,
-    'Incentive calculator',
+    'Special Price Calculator',
     '',
     y,
     contentW,

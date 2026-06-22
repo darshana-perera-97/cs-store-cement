@@ -46,7 +46,14 @@ function fileSlug(options = {}) {
 }
 
 function formatFilterLine(options = {}) {
-  const { dateFrom = '', dateTo = '', search = '' } = options;
+  const {
+    dateFrom = '',
+    dateTo = '',
+    search = '',
+    shop = '',
+    brandLabel = '',
+    stockId = '',
+  } = options;
   const parts = [];
   if (dateFrom || dateTo) {
     if (dateFrom && dateTo) parts.push(`Period: ${dateFrom} to ${dateTo}`);
@@ -54,6 +61,9 @@ function formatFilterLine(options = {}) {
     else parts.push(`To: ${dateTo}`);
   }
   if (String(search ?? '').trim()) parts.push(`Search: ${String(search).trim()}`);
+  if (String(shop ?? '').trim()) parts.push(`Shop: ${String(shop).trim()}`);
+  if (String(brandLabel ?? '').trim()) parts.push(`Bag type: ${String(brandLabel).trim()}`);
+  if (String(stockId ?? '').trim()) parts.push(`Stock ID: ${String(stockId).trim()}`);
   return parts.join(' · ');
 }
 
@@ -220,6 +230,99 @@ export function buildStockGroupedBasicIncentiveRows(rows) {
   return result;
 }
 
+/** Stock-wise export only — one row per stock × bag type plus stock subtotals (no shop allocation detail). */
+export function buildStockWiseExportRows(rows) {
+  const byStockBrand = new Map();
+
+  for (const row of rows || []) {
+    if (row.type === 'shopTotal' || row.type === 'stockTotal') continue;
+
+    const stockId = String(row.stockId ?? '').trim() || '—';
+    const brandKey = row.brandKey ?? '';
+    const key = `${stockId}|${brandKey}`;
+    const bags = Number(row.bags) || 0;
+    const incentive = row.basicTotalIncentive;
+
+    const existing = byStockBrand.get(key);
+    if (!existing) {
+      byStockBrand.set(key, {
+        type: 'data',
+        rowKey: key,
+        loadDate: row.loadDate ?? row.date,
+        stockId,
+        invoiceNumber: row.invoiceNumber ?? '—',
+        brandKey,
+        brandLabel: row.brandLabel,
+        bags,
+        perBagPrice: row.perBagPrice,
+        transportPerBag: row.transportPerBag,
+        cutOffPrice: row.cutOffPrice,
+        totalCostPerBag: row.totalCostPerBag,
+        basicIncentivePerBag: row.basicIncentivePerBag,
+        basicTotalIncentive: incentive != null ? Number(incentive) : null,
+      });
+      continue;
+    }
+
+    existing.bags += bags;
+    if (incentive != null) {
+      existing.basicTotalIncentive = (existing.basicTotalIncentive ?? 0) + Number(incentive);
+    }
+  }
+
+  const sorted = [...byStockBrand.values()].sort((a, b) => {
+    const byStock = a.stockId.localeCompare(b.stockId);
+    if (byStock !== 0) return byStock;
+    return String(a.brandLabel ?? '').localeCompare(String(b.brandLabel ?? ''));
+  });
+
+  const result = [];
+  let currentStock = null;
+  let stockTotals = {
+    bags: 0,
+    totalIncentive: 0,
+    hasTotalIncentive: false,
+  };
+
+  const flushStockTotal = () => {
+    result.push({
+      type: 'stockTotal',
+      rowKey: `stock-total-${currentStock}`,
+      stockId: currentStock,
+      bags: stockTotals.bags,
+      basicTotalIncentive: round2(stockTotals.totalIncentive),
+      hasTotalIncentive: stockTotals.hasTotalIncentive,
+    });
+  };
+
+  for (const row of sorted) {
+    if (currentStock !== null && row.stockId !== currentStock) {
+      flushStockTotal();
+      stockTotals = {
+        bags: 0,
+        totalIncentive: 0,
+        hasTotalIncentive: false,
+      };
+    }
+    currentStock = row.stockId;
+    if (row.basicTotalIncentive != null) {
+      row.basicTotalIncentive = round2(row.basicTotalIncentive);
+    }
+    result.push(row);
+    stockTotals.bags += row.bags;
+    if (row.basicTotalIncentive != null) {
+      stockTotals.totalIncentive += row.basicTotalIncentive;
+      stockTotals.hasTotalIncentive = true;
+    }
+  }
+
+  if (currentStock !== null) {
+    flushStockTotal();
+  }
+
+  return result;
+}
+
 function computeGrandTotals(rows) {
   const t = { bags: 0, totalIncentive: 0, hasTotalIncentive: false };
   for (const r of rows) {
@@ -335,7 +438,10 @@ function renderStockWiseTable(doc, groupedRows, options = {}) {
     dateFrom = '',
     dateTo = '',
     search = '',
-    title = 'Incentive Calculator — Stock wise',
+    shop = '',
+    brandLabel = '',
+    stockId = '',
+    title = 'Stock wise Incentive',
   } = options;
   const safeRows = groupedRows || [];
 
@@ -356,7 +462,7 @@ function renderStockWiseTable(doc, groupedRows, options = {}) {
   });
   doc.text(`Generated: ${dateStr}`, MARGIN, 22);
 
-  const filterLine = formatFilterLine({ dateFrom, dateTo, search });
+  const filterLine = formatFilterLine({ dateFrom, dateTo, search, shop, brandLabel, stockId });
   let startY = 27;
   if (filterLine) {
     doc.text(filterLine, MARGIN, startY);
@@ -440,8 +546,16 @@ function renderStockWiseTable(doc, groupedRows, options = {}) {
 }
 
 function renderBasicIncentiveTable(doc, groupedRows, options = {}) {
-  const { generatedAt = new Date(), dateFrom = '', dateTo = '', search = '', title = 'Incentive Calculator' } =
-    options;
+  const {
+    generatedAt = new Date(),
+    dateFrom = '',
+    dateTo = '',
+    search = '',
+    shop = '',
+    brandLabel = '',
+    stockId = '',
+    title = 'Incentive Calculator',
+  } = options;
   const safeRows = groupedRows || [];
 
   const pageW = doc.internal.pageSize.getWidth();
@@ -461,7 +575,7 @@ function renderBasicIncentiveTable(doc, groupedRows, options = {}) {
   });
   doc.text(`Generated: ${dateStr}`, MARGIN, 22);
 
-  const filterLine = formatFilterLine({ dateFrom, dateTo, search });
+  const filterLine = formatFilterLine({ dateFrom, dateTo, search, shop, brandLabel, stockId });
   let startY = 27;
   if (filterLine) {
     doc.text(filterLine, MARGIN, startY);
@@ -541,9 +655,23 @@ function renderBasicIncentiveTable(doc, groupedRows, options = {}) {
 }
 
 function writeBasicIncentiveExcel(groupedRows, options = {}) {
-  const { generatedAt = new Date(), dateFrom = '', dateTo = '', sheetName = 'Incentive Calculator' } = options;
+  const {
+    generatedAt = new Date(),
+    dateFrom = '',
+    dateTo = '',
+    search = '',
+    shop = '',
+    brandLabel = '',
+    stockId = '',
+    sheetName = 'Incentive Calculator',
+  } = options;
   const safeRows = groupedRows || [];
-  const sheetData = [TABLE_HEAD[0], ...safeRows.map(rowToCells)];
+  const filterLine = formatFilterLine({ dateFrom, dateTo, search, shop, brandLabel, stockId });
+  const sheetData = [
+    ...(filterLine ? [[filterLine]] : []),
+    TABLE_HEAD[0],
+    ...safeRows.map(rowToCells),
+  ];
   const worksheet = XLSX.utils.aoa_to_sheet(sheetData);
   worksheet['!cols'] = [
     { wch: 12 },
@@ -565,10 +693,21 @@ function writeBasicIncentiveExcel(groupedRows, options = {}) {
 }
 
 function writeStockWiseIncentiveExcel(groupedRows, options = {}) {
-  const { generatedAt = new Date(), dateFrom = '', dateTo = '', sheetName = 'Stock wise' } = options;
+  const {
+    generatedAt = new Date(),
+    dateFrom = '',
+    dateTo = '',
+    search = '',
+    shop = '',
+    brandLabel = '',
+    stockId = '',
+    sheetName = 'Stock wise',
+  } = options;
   const safeRows = groupedRows || [];
   const totals = computeGrandTotals(safeRows);
+  const filterLine = formatFilterLine({ dateFrom, dateTo, search, shop, brandLabel, stockId });
   const sheetData = [
+    ...(filterLine ? [[filterLine]] : []),
     STOCK_WISE_TABLE_HEAD[0],
     ...safeRows.map(stockWiseRowToCells),
     ...(safeRows.length > 0
@@ -615,7 +754,15 @@ function writeStockWiseIncentiveExcel(groupedRows, options = {}) {
  * @param {Array} groupedRows — output of buildShopGroupedBasicIncentiveRows
  */
 export function downloadBasicIncentivePdf(groupedRows, options = {}) {
-  const { generatedAt = new Date(), dateFrom = '', dateTo = '', search = '' } = options;
+  const {
+    generatedAt = new Date(),
+    dateFrom = '',
+    dateTo = '',
+    search = '',
+    shop = '',
+    brandLabel = '',
+    stockId = '',
+  } = options;
   const safeRows = groupedRows || [];
 
   const doc = new jsPDF({
@@ -624,7 +771,15 @@ export function downloadBasicIncentivePdf(groupedRows, options = {}) {
     format: 'a4',
   });
 
-  renderBasicIncentiveTable(doc, safeRows, { generatedAt, dateFrom, dateTo, search });
+  renderBasicIncentiveTable(doc, safeRows, {
+    generatedAt,
+    dateFrom,
+    dateTo,
+    search,
+    shop,
+    brandLabel,
+    stockId,
+  });
 
   addPageFooters(doc);
 
@@ -636,20 +791,41 @@ export function downloadBasicIncentivePdf(groupedRows, options = {}) {
  * @param {Array} groupedRows — output of buildShopGroupedBasicIncentiveRows
  */
 export function downloadBasicIncentiveExcel(groupedRows, options = {}) {
-  const { generatedAt = new Date(), dateFrom = '', dateTo = '' } = options;
+  const {
+    generatedAt = new Date(),
+    dateFrom = '',
+    dateTo = '',
+    search = '',
+    shop = '',
+    brandLabel = '',
+    stockId = '',
+  } = options;
   const { workbook, rangeSlug, safeDate } = writeBasicIncentiveExcel(groupedRows, {
     generatedAt,
     dateFrom,
     dateTo,
+    search,
+    shop,
+    brandLabel,
+    stockId,
   });
   XLSX.writeFile(workbook, `incentive-calculator-${rangeSlug}-${safeDate}.xlsx`);
 }
 
 /**
- * @param {Array} groupedRows — output of buildStockGroupedBasicIncentiveRows
+ * @param {Array} rows — basic incentive rows (shop allocations are aggregated away)
  */
-export function downloadStockWiseIncentivePdf(groupedRows, options = {}) {
-  const { generatedAt = new Date(), dateFrom = '', dateTo = '', search = '' } = options;
+export function downloadStockWiseIncentivePdf(rows, options = {}) {
+  const {
+    generatedAt = new Date(),
+    dateFrom = '',
+    dateTo = '',
+    search = '',
+    shop = '',
+    brandLabel = '',
+    stockId = '',
+  } = options;
+  const stockWiseRows = buildStockWiseExportRows(rows);
 
   const doc = new jsPDF({
     orientation: 'landscape',
@@ -657,12 +833,15 @@ export function downloadStockWiseIncentivePdf(groupedRows, options = {}) {
     format: 'a4',
   });
 
-  renderStockWiseTable(doc, groupedRows || [], {
+  renderStockWiseTable(doc, stockWiseRows, {
     generatedAt,
     dateFrom,
     dateTo,
     search,
-    title: 'Incentive Calculator — Stock wise',
+    shop,
+    brandLabel,
+    stockId,
+    title: 'Stock wise Incentive',
   });
 
   addPageFooters(doc);
@@ -672,14 +851,27 @@ export function downloadStockWiseIncentivePdf(groupedRows, options = {}) {
 }
 
 /**
- * @param {Array} groupedRows — output of buildStockGroupedBasicIncentiveRows
+ * @param {Array} rows — basic incentive rows (shop allocations are aggregated away)
  */
-export function downloadStockWiseIncentiveExcel(groupedRows, options = {}) {
-  const { generatedAt = new Date(), dateFrom = '', dateTo = '' } = options;
-  const { workbook, rangeSlug, safeDate } = writeStockWiseIncentiveExcel(groupedRows, {
+export function downloadStockWiseIncentiveExcel(rows, options = {}) {
+  const {
+    generatedAt = new Date(),
+    dateFrom = '',
+    dateTo = '',
+    search = '',
+    shop = '',
+    brandLabel = '',
+    stockId = '',
+  } = options;
+  const stockWiseRows = buildStockWiseExportRows(rows);
+  const { workbook, rangeSlug, safeDate } = writeStockWiseIncentiveExcel(stockWiseRows, {
     generatedAt,
-    dateFrom,
     dateTo,
+    dateFrom,
+    search,
+    shop,
+    brandLabel,
+    stockId,
     sheetName: 'Stock wise',
   });
   XLSX.writeFile(workbook, `incentive-calculator-stock-wise-${rangeSlug}-${safeDate}.xlsx`);

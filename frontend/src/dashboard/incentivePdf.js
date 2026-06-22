@@ -27,7 +27,14 @@ function formatAmount(n) {
 }
 
 function formatFilterLine(options = {}) {
-  const { dateFrom = '', dateTo = '', search = '' } = options;
+  const {
+    dateFrom = '',
+    dateTo = '',
+    search = '',
+    shop = '',
+    brandLabel = '',
+    stockId = '',
+  } = options;
   const parts = [];
   if (dateFrom || dateTo) {
     if (dateFrom && dateTo) parts.push(`Period: ${dateFrom} to ${dateTo}`);
@@ -35,6 +42,9 @@ function formatFilterLine(options = {}) {
     else parts.push(`To: ${dateTo}`);
   }
   if (String(search ?? '').trim()) parts.push(`Search: ${String(search).trim()}`);
+  if (String(shop ?? '').trim()) parts.push(`Shop: ${String(shop).trim()}`);
+  if (String(brandLabel ?? '').trim()) parts.push(`Bag type: ${String(brandLabel).trim()}`);
+  if (String(stockId ?? '').trim()) parts.push(`Stock ID: ${String(stockId).trim()}`);
   return parts.join(' · ');
 }
 
@@ -84,13 +94,13 @@ function computeCostTotals(rows) {
 }
 
 function computeDistributionTotals(rows) {
-  const t = { bags: 0, totalIncentive: 0, hasTotalIncentive: false };
+  const t = { bags: 0, totalDifference: 0, hasTotalDifference: false };
   for (const r of rows) {
     if (r.type === 'shopTotal') continue;
     t.bags += Number(r.bags) || 0;
-    if (r.totalIncentive != null) {
-      t.totalIncentive += Number(r.totalIncentive) || 0;
-      t.hasTotalIncentive = true;
+    if (r.totalDifference != null) {
+      t.totalDifference += Number(r.totalDifference) || 0;
+      t.hasTotalDifference = true;
     }
   }
   return t;
@@ -100,24 +110,42 @@ function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
 
+function priceDiffPerBag(left, right) {
+  if (
+    left == null ||
+    right == null ||
+    !Number.isFinite(Number(left)) ||
+    !Number.isFinite(Number(right))
+  ) {
+    return null;
+  }
+  return round2(Number(left) - Number(right));
+}
+
+export function computeSpecialPriceFields(row) {
+  const differencePerBag = priceDiffPerBag(row.sellingPricePerBag, row.cutOffPrice);
+  const totalDifference =
+    differencePerBag != null ? round2(differencePerBag * (Number(row.bags) || 0)) : null;
+  return { differencePerBag, totalDifference };
+}
+
 /** Insert a subtotal row after each shop group (rows must already be sorted by shop). */
 export function buildShopGroupedDistributionRows(rows) {
   const result = [];
   let currentShop = null;
   let shopTotals = {
     bags: 0,
-    totalIncentive: 0,
-    hasTotalIncentive: false,
+    totalDifference: 0,
+    hasTotalDifference: false,
   };
-
   const flushShopTotal = (shop) => {
     result.push({
       type: 'shopTotal',
       rowKey: `shop-total-${shop}`,
       shop,
       bags: shopTotals.bags,
-      totalIncentive: round2(shopTotals.totalIncentive),
-      hasTotalIncentive: shopTotals.hasTotalIncentive,
+      totalDifference: round2(shopTotals.totalDifference),
+      hasTotalDifference: shopTotals.hasTotalDifference,
     });
   };
 
@@ -126,16 +154,22 @@ export function buildShopGroupedDistributionRows(rows) {
       flushShopTotal(currentShop);
       shopTotals = {
         bags: 0,
-        totalIncentive: 0,
-        hasTotalIncentive: false,
+        totalDifference: 0,
+        hasTotalDifference: false,
       };
     }
     currentShop = row.shop;
-    result.push({ type: 'data', ...row });
+    const { differencePerBag, totalDifference } = computeSpecialPriceFields(row);
+    result.push({
+      type: 'data',
+      ...row,
+      differencePerBag,
+      totalDifference,
+    });
     shopTotals.bags += Number(row.bags) || 0;
-    if (row.totalIncentive != null) {
-      shopTotals.totalIncentive += Number(row.totalIncentive) || 0;
-      shopTotals.hasTotalIncentive = true;
+    if (totalDifference != null) {
+      shopTotals.totalDifference += totalDifference;
+      shopTotals.hasTotalDifference = true;
     }
   }
 
@@ -221,19 +255,13 @@ function drawIncentiveCalculatorTable(doc, rows, startY, contentW) {
   const head = [
     [
       'Date',
-      'StockID',
       'Shop Name',
       'Bag Type',
-      'No. Bags',
-      'Bag price in invoice',
-      'Cut-off price (per bag)',
-      'Incentive for cut-off bag',
-      'Transport Cost per Bag',
-      'Total cost per bag',
-      'Selling price per bag',
-      'Incentive per bag',
-      'Pure incentive per bag',
-      'Total Incentive',
+      'Amount',
+      'Cut-off price',
+      'Sold price',
+      'Different per bag',
+      'Total difference',
     ],
   ];
 
@@ -243,39 +271,27 @@ function drawIncentiveCalculatorTable(doc, rows, startY, contentW) {
           if (r.type === 'shopTotal') {
             return [
               '',
-              '',
               `${String(r.shop ?? '')} total`,
               '',
               Number(r.bags) || 0,
               '',
               '',
               '',
-              '',
-              '',
-              '',
-              '',
-              '',
-              r.hasTotalIncentive ? r.totalIncentive : '',
+              r.hasTotalDifference ? r.totalDifference : '',
             ];
           }
           return [
             String(r.date ?? ''),
-            String(r.stockId ?? ''),
             String(r.shop ?? ''),
             String(r.brandLabel ?? ''),
             Number(r.bags) || 0,
-            r.perBagPrice,
             r.cutOffPrice,
-            r.cutOffIncentivePerBag,
-            r.transportPerBag,
-            r.totalCostPerBag,
             r.sellingPricePerBag,
-            r.incentivePerBag,
-            r.pureIncentivePerBag,
-            r.totalIncentive,
+            r.differencePerBag,
+            r.totalDifference,
           ];
         })
-      : [['—', '—', '—', '—', 0, '', '', '', '', '', '', '', '', '']];
+      : [['—', '—', '—', 0, '', '', '', '']];
 
   const totals = computeDistributionTotals(safeRows);
   const foot = [
@@ -283,27 +299,21 @@ function drawIncentiveCalculatorTable(doc, rows, startY, contentW) {
       'Grand total',
       '',
       '',
-      '',
       totals.bags,
       '',
       '',
       '',
-      '',
-      '',
-      '',
-      '',
-      '',
-      totals.hasTotalIncentive ? totals.totalIncentive : '',
+      totals.hasTotalDifference ? totals.totalDifference : '',
     ],
   ];
 
-  const ratios = [0.055, 0.055, 0.07, 0.055, 0.05, 0.07, 0.07, 0.07, 0.07, 0.07, 0.07, 0.07, 0.07, 0.07];
-  const amountCols = new Set([5, 6, 7, 8, 9, 10, 11, 12, 13]);
+  const ratios = [0.11, 0.16, 0.11, 0.09, 0.13, 0.13, 0.14, 0.13];
+  const amountCols = new Set([4, 5, 6, 7]);
   const formatAmounts = amountCellHook(amountCols);
 
   autoTable(doc, {
     ...TABLE_STYLES,
-    styles: { ...TABLE_STYLES.styles, fontSize: 7 },
+    styles: { ...TABLE_STYLES.styles, fontSize: 8 },
     head,
     body,
     foot: safeRows.length > 0 ? foot : undefined,
@@ -316,7 +326,7 @@ function drawIncentiveCalculatorTable(doc, rows, startY, contentW) {
         index,
         {
           cellWidth: contentW * ratio,
-          ...(index >= 4 ? { halign: 'right' } : {}),
+          ...(index >= 3 ? { halign: 'right' } : {}),
         },
       ]),
     ),
@@ -327,7 +337,7 @@ function drawIncentiveCalculatorTable(doc, rows, startY, contentW) {
         data.cell.styles.fontStyle = 'bold';
         data.cell.styles.fillColor = [241, 245, 249];
       }
-      if (data.column.index === 4) {
+      if (data.column.index === 3) {
         const raw = data.cell.raw;
         if (raw != null && raw !== '' && raw !== '—') {
           data.cell.text = [String(Number(raw) || 0)];
@@ -401,7 +411,7 @@ export function downloadIncentiveCostPdf(costRows, options = {}) {
  * @param {Array} distributionRows — Incentive calculator rows (ungrouped; shop totals added automatically)
  */
 export function downloadIncentiveCalculatorPdf(distributionRows, options = {}) {
-  const { generatedAt = new Date(), dateFrom = '', dateTo = '', search = '' } = options;
+  const { generatedAt = new Date(), dateFrom = '', dateTo = '' } = options;
 
   const doc = new jsPDF({
     orientation: 'landscape',
@@ -426,7 +436,7 @@ export function downloadIncentiveCalculatorPdf(distributionRows, options = {}) {
   });
   doc.text(`Generated: ${dateStr}`, MARGIN, 22);
 
-  const filterLine = formatFilterLine({ dateFrom, dateTo, search });
+  const filterLine = formatFilterLine(options);
   let y = 27;
   if (filterLine) {
     doc.text(filterLine, MARGIN, y);

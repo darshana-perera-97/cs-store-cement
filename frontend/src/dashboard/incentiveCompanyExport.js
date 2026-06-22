@@ -35,7 +35,14 @@ function fileSlug(options = {}) {
 }
 
 function formatFilterLine(options = {}) {
-  const { dateFrom = '', dateTo = '', search = '' } = options;
+  const {
+    dateFrom = '',
+    dateTo = '',
+    search = '',
+    shop = '',
+    brandLabel = '',
+    stockId = '',
+  } = options;
   const parts = [];
   if (dateFrom || dateTo) {
     if (dateFrom && dateTo) parts.push(`Period: ${dateFrom} to ${dateTo}`);
@@ -43,6 +50,9 @@ function formatFilterLine(options = {}) {
     else parts.push(`To: ${dateTo}`);
   }
   if (String(search ?? '').trim()) parts.push(`Search: ${String(search).trim()}`);
+  if (String(shop ?? '').trim()) parts.push(`Shop: ${String(shop).trim()}`);
+  if (String(brandLabel ?? '').trim()) parts.push(`Bag type: ${String(brandLabel).trim()}`);
+  if (String(stockId ?? '').trim()) parts.push(`Stock ID: ${String(stockId).trim()}`);
   return parts.join(' · ');
 }
 
@@ -205,7 +215,7 @@ function amountCellHook(numericColumns) {
  * @param {Map<string, string>} locationMap — shop name (lowercase) → location
  */
 export function downloadIncentiveCompanyPdf(distributionRows, locationMap, options = {}) {
-  const { generatedAt = new Date(), dateFrom = '', dateTo = '', search = '' } = options;
+  const { generatedAt = new Date(), dateFrom = '', dateTo = '' } = options;
   const companyRows = buildCompanyRows(distributionRows, locationMap);
   const totals = computeTotals(companyRows);
   const { body, subtotalRowIndices, cumulative, hasCumulative } = buildPdfTableBody(companyRows);
@@ -247,7 +257,7 @@ export function downloadIncentiveCompanyPdf(distributionRows, locationMap, optio
   });
   doc.text(`Generated: ${dateStr}`, MARGIN, 22);
 
-  const filterLine = formatFilterLine({ dateFrom, dateTo, search });
+  const filterLine = formatFilterLine(options);
   let startY = 27;
   if (filterLine) {
     doc.text(filterLine, MARGIN, startY);

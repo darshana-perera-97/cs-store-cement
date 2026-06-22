@@ -5,7 +5,6 @@ import RowDetailModal, { detailRowAttrs } from './RowDetailModal';
 import {
   buildBasicIncentiveRows,
   buildShopGroupedBasicIncentiveRows,
-  buildStockGroupedBasicIncentiveRows,
   downloadBasicIncentiveExcel,
   downloadBasicIncentivePdf,
   downloadStockWiseIncentiveExcel,
@@ -14,6 +13,7 @@ import {
 import { downloadIncentiveCompanyReport, resolveLocation } from './incentiveCompanyExport';
 import {
   buildShopGroupedDistributionRows,
+  computeSpecialPriceFields,
   downloadIncentiveCalculatorPdf,
   downloadIncentiveCostPdf,
   downloadIncentivePdf,
@@ -23,11 +23,198 @@ import {
   TablePaginationBar,
   filterControl,
   inDateRange,
+  modalPanelClassMd,
   rowMatchesQuery,
   scrollTableWrap,
   stickyThead,
   useTablePagination,
 } from './tableToolbar';
+
+const EMPTY_INCENTIVE_FILTERS = {
+  search: '',
+  dateFrom: '',
+  dateTo: '',
+  shop: '',
+  brand: '',
+  stockId: '',
+};
+
+function countActiveIncentiveFilters(filters) {
+  let count = 0;
+  if (String(filters.search ?? '').trim()) count += 1;
+  if (filters.dateFrom) count += 1;
+  if (filters.dateTo) count += 1;
+  if (filters.shop) count += 1;
+  if (filters.brand) count += 1;
+  if (String(filters.stockId ?? '').trim()) count += 1;
+  return count;
+}
+
+function filterDistributionRows(rows, filters, customerLocationMap) {
+  const { search, dateFrom, dateTo, shop, brand, stockId } = filters;
+  const stockIdQuery = String(stockId ?? '').trim().toLowerCase();
+
+  return rows.filter((r) => {
+    if (!inDateRange(r.date, dateFrom, dateTo)) return false;
+    if (shop && r.shop !== shop) return false;
+    if (brand && r.brandKey !== brand) return false;
+    if (stockIdQuery && !String(r.stockId ?? '').toLowerCase().includes(stockIdQuery)) return false;
+
+    const location = resolveLocation(r.shop, customerLocationMap);
+    return rowMatchesQuery(search, [
+      r.date,
+      r.stockId,
+      r.shop,
+      location,
+      r.brandLabel,
+      String(r.bags),
+      String(r.perBagPrice),
+      String(r.cutOffPrice),
+      String(r.cutOffIncentivePerBag),
+      String(r.transportPerBag),
+      String(r.totalCostPerBag),
+      String(r.sellingPricePerBag),
+      String(r.incentivePerBag),
+      String(r.pureIncentivePerBag),
+      String(r.totalIncentive),
+    ]);
+  });
+}
+
+const downloadPdfButtonClass =
+  'rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm ring-1 ring-slate-100 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50';
+
+function DistributionFilterModal({
+  open,
+  title,
+  description,
+  titleId,
+  draft,
+  setDraft,
+  shopOptions,
+  onApply,
+  onClear,
+  onClose,
+}) {
+  if (!open) return null;
+
+  return (
+    <div
+      className="fixed inset-0 z-[100] flex items-end justify-center p-4 sm:items-center"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={titleId}
+    >
+      <button
+        type="button"
+        className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+        aria-label="Close"
+        onClick={onClose}
+      />
+      <div className={modalPanelClassMd}>
+        <h2 id={titleId} className="text-lg font-bold text-slate-900">
+          {title}
+        </h2>
+        <p className="mt-1 text-sm text-slate-500">{description}</p>
+        <form
+          className="mt-5 space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            onApply();
+          }}
+        >
+          <label className="block text-sm font-medium text-slate-600">
+            Search
+            <input
+              type="search"
+              value={draft.search}
+              onChange={(e) => setDraft((prev) => ({ ...prev, search: e.target.value }))}
+              placeholder="Shop, stock ID, bag type, amounts…"
+              className={filterControl}
+            />
+          </label>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="block text-sm font-medium text-slate-600">
+              From date
+              <input
+                type="date"
+                value={draft.dateFrom}
+                onChange={(e) => setDraft((prev) => ({ ...prev, dateFrom: e.target.value }))}
+                className={filterControl}
+              />
+            </label>
+            <label className="block text-sm font-medium text-slate-600">
+              To date
+              <input
+                type="date"
+                value={draft.dateTo}
+                onChange={(e) => setDraft((prev) => ({ ...prev, dateTo: e.target.value }))}
+                className={filterControl}
+              />
+            </label>
+          </div>
+          <label className="block text-sm font-medium text-slate-600">
+            Shop
+            <select
+              value={draft.shop}
+              onChange={(e) => setDraft((prev) => ({ ...prev, shop: e.target.value }))}
+              className={filterControl}
+            >
+              <option value="">All shops</option>
+              {shopOptions.map((shop) => (
+                <option key={shop} value={shop}>
+                  {shop}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="block text-sm font-medium text-slate-600">
+              Bag type
+              <select
+                value={draft.brand}
+                onChange={(e) => setDraft((prev) => ({ ...prev, brand: e.target.value }))}
+                className={filterControl}
+              >
+                <option value="">All bag types</option>
+                {BRANDS.map((b) => (
+                  <option key={b.key} value={b.key}>
+                    {b.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block text-sm font-medium text-slate-600">
+              Stock ID
+              <input
+                type="search"
+                value={draft.stockId}
+                onChange={(e) => setDraft((prev) => ({ ...prev, stockId: e.target.value }))}
+                placeholder="Contains…"
+                className={filterControl}
+                autoComplete="off"
+              />
+            </label>
+          </div>
+          <div className="flex flex-wrap gap-2 pt-1">
+            <button
+              type="submit"
+              className="rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700"
+            >
+              Apply filters
+            </button>
+            <button type="button" className={downloadPdfButtonClass} onClick={onClear}>
+              Clear all
+            </button>
+            <button type="button" className={downloadPdfButtonClass} onClick={onClose}>
+              Cancel
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
 
 const apiBase = getApiBase();
 const DEFAULT_MARGIN_PER_BAG = 70;
@@ -342,6 +529,12 @@ export default function IncentivePage() {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [detailRow, setDetailRow] = useState(null);
+  const [incentiveFilterOpen, setIncentiveFilterOpen] = useState(false);
+  const [incentiveFilters, setIncentiveFilters] = useState(EMPTY_INCENTIVE_FILTERS);
+  const [incentiveFilterDraft, setIncentiveFilterDraft] = useState(EMPTY_INCENTIVE_FILTERS);
+  const [specialPriceFilterOpen, setSpecialPriceFilterOpen] = useState(false);
+  const [specialPriceFilters, setSpecialPriceFilters] = useState(EMPTY_INCENTIVE_FILTERS);
+  const [specialPriceFilterDraft, setSpecialPriceFilterDraft] = useState(EMPTY_INCENTIVE_FILTERS);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -435,23 +628,47 @@ export default function IncentivePage() {
     });
   }, [distributionRows, search, dateFrom, dateTo, customerLocationMap]);
 
+  const incentiveShopOptions = useMemo(() => {
+    const shops = new Set();
+    for (const row of distributionRows) {
+      const shop = String(row.shop ?? '').trim();
+      if (shop && shop !== '—') shops.add(shop);
+    }
+    return [...shops].sort((a, b) => a.localeCompare(b));
+  }, [distributionRows]);
+
+  const filteredIncentiveDistributionRows = useMemo(
+    () => filterDistributionRows(distributionRows, incentiveFilters, customerLocationMap),
+    [distributionRows, incentiveFilters, customerLocationMap],
+  );
+
+  const filteredSpecialPriceDistributionRows = useMemo(
+    () => filterDistributionRows(distributionRows, specialPriceFilters, customerLocationMap),
+    [distributionRows, specialPriceFilters, customerLocationMap],
+  );
+
+  const activeIncentiveFilterCount = useMemo(
+    () => countActiveIncentiveFilters(incentiveFilters),
+    [incentiveFilters],
+  );
+
+  const activeSpecialPriceFilterCount = useMemo(
+    () => countActiveIncentiveFilters(specialPriceFilters),
+    [specialPriceFilters],
+  );
+
   const groupedDistributionRows = useMemo(
-    () => buildShopGroupedDistributionRows(filteredDistributionRows),
-    [filteredDistributionRows],
+    () => buildShopGroupedDistributionRows(filteredSpecialPriceDistributionRows),
+    [filteredSpecialPriceDistributionRows],
   );
 
   const basicIncentiveRows = useMemo(
-    () => buildBasicIncentiveRows(filteredDistributionRows, customerLocationMap),
-    [filteredDistributionRows, customerLocationMap],
+    () => buildBasicIncentiveRows(filteredIncentiveDistributionRows, customerLocationMap),
+    [filteredIncentiveDistributionRows, customerLocationMap],
   );
 
   const groupedBasicIncentiveRows = useMemo(
     () => buildShopGroupedBasicIncentiveRows(basicIncentiveRows),
-    [basicIncentiveRows],
-  );
-
-  const stockGroupedBasicIncentiveRows = useMemo(
-    () => buildStockGroupedBasicIncentiveRows(basicIncentiveRows),
     [basicIncentiveRows],
   );
 
@@ -479,7 +696,7 @@ export default function IncentivePage() {
     [filteredRows, loadPagination.offset, loadPagination.pageSize],
   );
 
-  const basicPagination = useTablePagination(groupedBasicIncentiveRows.length, [search, dateFrom, dateTo]);
+  const basicPagination = useTablePagination(groupedBasicIncentiveRows.length, [incentiveFilters]);
   const pagedBasicRows = useMemo(
     () =>
       groupedBasicIncentiveRows.slice(
@@ -489,11 +706,7 @@ export default function IncentivePage() {
     [groupedBasicIncentiveRows, basicPagination.offset, basicPagination.pageSize],
   );
 
-  const distributionPagination = useTablePagination(groupedDistributionRows.length, [
-    search,
-    dateFrom,
-    dateTo,
-  ]);
+  const distributionPagination = useTablePagination(groupedDistributionRows.length, [specialPriceFilters]);
   const pagedDistributionRows = useMemo(
     () =>
       groupedDistributionRows.slice(
@@ -521,21 +734,22 @@ export default function IncentivePage() {
 
   const distributionTotals = useMemo(() => {
     let bags = 0;
-    let totalIncentive = 0;
-    let hasTotalIncentive = false;
-    for (const r of filteredDistributionRows) {
+    let totalDifference = 0;
+    let hasTotalDifference = false;
+    for (const r of filteredSpecialPriceDistributionRows) {
       bags += r.bags;
-      if (r.totalIncentive != null) {
-        totalIncentive += r.totalIncentive;
-        hasTotalIncentive = true;
+      const { totalDifference: rowTotal } = computeSpecialPriceFields(r);
+      if (rowTotal != null) {
+        totalDifference += rowTotal;
+        hasTotalDifference = true;
       }
     }
     return {
       bags,
-      totalIncentive: round2(totalIncentive),
-      hasTotalIncentive,
+      totalDifference: round2(totalDifference),
+      hasTotalDifference,
     };
-  }, [filteredDistributionRows]);
+  }, [filteredSpecialPriceDistributionRows]);
 
   const brandByKey = useMemo(() => Object.fromEntries(BRANDS.map((b) => [b.key, b])), []);
 
@@ -547,36 +761,101 @@ export default function IncentivePage() {
     downloadIncentiveCostPdf(filteredRows, { dateFrom, dateTo, search });
   }, [filteredRows, dateFrom, dateTo, search]);
 
+  const incentiveExportOptions = useMemo(
+    () => ({
+      dateFrom: incentiveFilters.dateFrom,
+      dateTo: incentiveFilters.dateTo,
+      search: incentiveFilters.search,
+      shop: incentiveFilters.shop,
+      stockId: incentiveFilters.stockId,
+      brandLabel: incentiveFilters.brand
+        ? brandByKey[incentiveFilters.brand]?.label ?? incentiveFilters.brand
+        : '',
+    }),
+    [incentiveFilters, brandByKey],
+  );
+
+  const specialPriceExportOptions = useMemo(
+    () => ({
+      dateFrom: specialPriceFilters.dateFrom,
+      dateTo: specialPriceFilters.dateTo,
+      search: specialPriceFilters.search,
+      shop: specialPriceFilters.shop,
+      stockId: specialPriceFilters.stockId,
+      brandLabel: specialPriceFilters.brand
+        ? brandByKey[specialPriceFilters.brand]?.label ?? specialPriceFilters.brand
+        : '',
+    }),
+    [specialPriceFilters, brandByKey],
+  );
+
+  const openIncentiveFilterPopup = useCallback(() => {
+    setIncentiveFilterDraft(incentiveFilters);
+    setIncentiveFilterOpen(true);
+  }, [incentiveFilters]);
+
+  const closeIncentiveFilterPopup = useCallback(() => {
+    setIncentiveFilterOpen(false);
+  }, []);
+
+  const applyIncentiveFilters = useCallback(() => {
+    setIncentiveFilters(incentiveFilterDraft);
+    setIncentiveFilterOpen(false);
+  }, [incentiveFilterDraft]);
+
+  const clearIncentiveFilters = useCallback(() => {
+    setIncentiveFilterDraft(EMPTY_INCENTIVE_FILTERS);
+    setIncentiveFilters(EMPTY_INCENTIVE_FILTERS);
+    setIncentiveFilterOpen(false);
+  }, []);
+
+  const openSpecialPriceFilterPopup = useCallback(() => {
+    setSpecialPriceFilterDraft(specialPriceFilters);
+    setSpecialPriceFilterOpen(true);
+  }, [specialPriceFilters]);
+
+  const closeSpecialPriceFilterPopup = useCallback(() => {
+    setSpecialPriceFilterOpen(false);
+  }, []);
+
+  const applySpecialPriceFilters = useCallback(() => {
+    setSpecialPriceFilters(specialPriceFilterDraft);
+    setSpecialPriceFilterOpen(false);
+  }, [specialPriceFilterDraft]);
+
+  const clearSpecialPriceFilters = useCallback(() => {
+    setSpecialPriceFilterDraft(EMPTY_INCENTIVE_FILTERS);
+    setSpecialPriceFilters(EMPTY_INCENTIVE_FILTERS);
+    setSpecialPriceFilterOpen(false);
+  }, []);
+
   const handleDownloadBasicIncentivePdf = useCallback(() => {
-    downloadBasicIncentivePdf(groupedBasicIncentiveRows, { dateFrom, dateTo, search });
-  }, [groupedBasicIncentiveRows, dateFrom, dateTo, search]);
+    downloadBasicIncentivePdf(groupedBasicIncentiveRows, incentiveExportOptions);
+  }, [groupedBasicIncentiveRows, incentiveExportOptions]);
 
   const handleDownloadBasicIncentiveExcel = useCallback(() => {
-    downloadBasicIncentiveExcel(groupedBasicIncentiveRows, { dateFrom, dateTo, search });
-  }, [groupedBasicIncentiveRows, dateFrom, dateTo, search]);
+    downloadBasicIncentiveExcel(groupedBasicIncentiveRows, incentiveExportOptions);
+  }, [groupedBasicIncentiveRows, incentiveExportOptions]);
 
   const handleDownloadStockWiseIncentivePdf = useCallback(() => {
-    downloadStockWiseIncentivePdf(stockGroupedBasicIncentiveRows, { dateFrom, dateTo, search });
-  }, [stockGroupedBasicIncentiveRows, dateFrom, dateTo, search]);
+    downloadStockWiseIncentivePdf(basicIncentiveRows, incentiveExportOptions);
+  }, [basicIncentiveRows, incentiveExportOptions]);
 
   const handleDownloadStockWiseIncentiveExcel = useCallback(() => {
-    downloadStockWiseIncentiveExcel(stockGroupedBasicIncentiveRows, { dateFrom, dateTo, search });
-  }, [stockGroupedBasicIncentiveRows, dateFrom, dateTo, search]);
+    downloadStockWiseIncentiveExcel(basicIncentiveRows, incentiveExportOptions);
+  }, [basicIncentiveRows, incentiveExportOptions]);
 
   const handleDownloadCalculatorPdf = useCallback(() => {
-    downloadIncentiveCalculatorPdf(filteredDistributionRows, { dateFrom, dateTo, search });
-  }, [filteredDistributionRows, dateFrom, dateTo, search]);
+    downloadIncentiveCalculatorPdf(filteredSpecialPriceDistributionRows, specialPriceExportOptions);
+  }, [filteredSpecialPriceDistributionRows, specialPriceExportOptions]);
 
   const handleDownloadForCompany = useCallback(() => {
-    downloadIncentiveCompanyReport(filteredDistributionRows, customerLocationMap, {
-      dateFrom,
-      dateTo,
-      search,
-    });
-  }, [filteredDistributionRows, customerLocationMap, dateFrom, dateTo, search]);
-
-  const downloadPdfButtonClass =
-    'rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm ring-1 ring-slate-100 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50';
+    downloadIncentiveCompanyReport(
+      filteredSpecialPriceDistributionRows,
+      customerLocationMap,
+      specialPriceExportOptions,
+    );
+  }, [filteredSpecialPriceDistributionRows, customerLocationMap, specialPriceExportOptions]);
 
   return (
     <div className="space-y-5">
@@ -751,8 +1030,28 @@ export default function IncentivePage() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-base font-semibold text-slate-900">Incentive Calculator</h2>
+          {!loading && distributionRows.length > 0 ? (
+            <p className="mt-1 text-sm text-slate-500">
+              Showing {basicIncentiveRows.length} of {distributionRows.length} line
+              {distributionRows.length === 1 ? '' : 's'}
+              {activeIncentiveFilterCount > 0 ? ` · ${activeIncentiveFilterCount} filter${activeIncentiveFilterCount === 1 ? '' : 's'} active` : ''}.
+            </p>
+          ) : null}
         </div>
         <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            className={`${downloadPdfButtonClass}${activeIncentiveFilterCount > 0 ? ' border-indigo-200 bg-indigo-50 text-indigo-800 ring-indigo-100' : ''}`}
+            disabled={loading}
+            onClick={openIncentiveFilterPopup}
+          >
+            Filters
+            {activeIncentiveFilterCount > 0 ? (
+              <span className="ml-1.5 inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-indigo-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                {activeIncentiveFilterCount}
+              </span>
+            ) : null}
+          </button>
           <button
             type="button"
             className={downloadPdfButtonClass}
@@ -923,12 +1222,35 @@ export default function IncentivePage() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-base font-semibold text-slate-900">Special Price Calculator</h2>
+          {!loading && distributionRows.length > 0 ? (
+            <p className="mt-1 text-sm text-slate-500">
+              Showing {filteredSpecialPriceDistributionRows.length} of {distributionRows.length} line
+              {distributionRows.length === 1 ? '' : 's'}
+              {activeSpecialPriceFilterCount > 0
+                ? ` · ${activeSpecialPriceFilterCount} filter${activeSpecialPriceFilterCount === 1 ? '' : 's'} active`
+                : ''}
+              .
+            </p>
+          ) : null}
         </div>
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
+            className={`${downloadPdfButtonClass}${activeSpecialPriceFilterCount > 0 ? ' border-indigo-200 bg-indigo-50 text-indigo-800 ring-indigo-100' : ''}`}
+            disabled={loading}
+            onClick={openSpecialPriceFilterPopup}
+          >
+            Filters
+            {activeSpecialPriceFilterCount > 0 ? (
+              <span className="ml-1.5 inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-indigo-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                {activeSpecialPriceFilterCount}
+              </span>
+            ) : null}
+          </button>
+          <button
+            type="button"
             className={downloadPdfButtonClass}
-            disabled={loading || filteredDistributionRows.length === 0}
+            disabled={loading || filteredSpecialPriceDistributionRows.length === 0}
             onClick={handleDownloadCalculatorPdf}
           >
             Download PDF
@@ -936,7 +1258,7 @@ export default function IncentivePage() {
           <button
             type="button"
             className={downloadPdfButtonClass}
-            disabled={loading || filteredDistributionRows.length === 0}
+            disabled={loading || filteredSpecialPriceDistributionRows.length === 0}
             onClick={handleDownloadForCompany}
           >
             Download for Company
@@ -945,41 +1267,35 @@ export default function IncentivePage() {
       </div>
 
       <div className={scrollTableWrap}>
-        <table className="w-full min-w-[1680px] border-separate border-spacing-0 text-left text-sm">
+        <table className="w-full min-w-[960px] border-separate border-spacing-0 text-left text-sm">
           <thead className={stickyThead}>
             <tr className="border-b border-slate-100 bg-slate-50/90 text-xs font-semibold uppercase tracking-wide text-slate-500">
               <th className="whitespace-nowrap px-4 py-3">Date</th>
-              <th className="whitespace-nowrap px-4 py-3">StockID</th>
               <th className="whitespace-nowrap px-4 py-3">Shop Name</th>
               <th className="whitespace-nowrap px-4 py-3">Bag Type</th>
-              <th className="whitespace-nowrap px-4 py-3 text-right">No. Bags</th>
-              <th className="whitespace-nowrap px-4 py-3 text-right">Bag price in invoice</th>
-              <th className="whitespace-nowrap px-4 py-3 text-right">Cut-off price (per bag)</th>
-              <th className="whitespace-nowrap px-4 py-3 text-right">Incentive for cut-off bag</th>
-              <th className="whitespace-nowrap px-4 py-3 text-right">Transport Cost per Bag</th>
-              <th className="whitespace-nowrap px-4 py-3 text-right">Total cost per bag</th>
-              <th className="whitespace-nowrap px-4 py-3 text-right">Selling price per bag</th>
-              <th className="whitespace-nowrap px-4 py-3 text-right">Incentive per bag</th>
-              <th className="whitespace-nowrap px-4 py-3 text-right">Pure incentive per bag</th>
-              <th className="whitespace-nowrap px-4 py-3 text-right">Total Incentive</th>
+              <th className="whitespace-nowrap px-4 py-3 text-right">Amount</th>
+              <th className="whitespace-nowrap px-4 py-3 text-right">Cut-off price</th>
+              <th className="whitespace-nowrap px-4 py-3 text-right">Sold price</th>
+              <th className="whitespace-nowrap px-4 py-3 text-right">Different per bag</th>
+              <th className="whitespace-nowrap px-4 py-3 text-right">Total difference</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 text-slate-800">
             {loading ? (
               <tr>
-                <td colSpan={14} className="px-4 py-10 text-center text-slate-500">
+                <td colSpan={8} className="px-4 py-10 text-center text-slate-500">
                   Loading…
                 </td>
               </tr>
             ) : distributionRows.length === 0 ? (
               <tr>
-                <td colSpan={14} className="px-4 py-10 text-center text-slate-500">
+                <td colSpan={8} className="px-4 py-10 text-center text-slate-500">
                   No shop distributions yet. Add credit bills on the Bills page to see allocations here.
                 </td>
               </tr>
-            ) : filteredDistributionRows.length === 0 ? (
+            ) : filteredSpecialPriceDistributionRows.length === 0 ? (
               <tr>
-                <td colSpan={14} className="px-4 py-10 text-center text-slate-500">
+                <td colSpan={8} className="px-4 py-10 text-center text-slate-500">
                   No rows match your search or filters.
                 </td>
               </tr>
@@ -991,20 +1307,16 @@ export default function IncentivePage() {
                       key={r.rowKey}
                       className="border-t border-slate-200 bg-slate-100/90 font-semibold text-slate-900"
                     >
-                      <td colSpan={4} className="px-4 py-3">
+                      <td className="px-4 py-3" />
+                      <td colSpan={2} className="px-4 py-3">
                         {r.shop} total
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">{r.bags.toLocaleString()}</td>
                       <td className="px-4 py-3" />
                       <td className="px-4 py-3" />
                       <td className="px-4 py-3" />
-                      <td className="px-4 py-3" />
-                      <td className="px-4 py-3" />
-                      <td className="px-4 py-3" />
-                      <td className="px-4 py-3" />
-                      <td className="px-4 py-3" />
                       <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">
-                        {r.hasTotalIncentive ? moneyOrDashStyled(r.totalIncentive) : '—'}
+                        {r.hasTotalDifference ? moneyOrDashStyled(r.totalDifference) : '—'}
                       </td>
                     </tr>
                   );
@@ -1014,7 +1326,6 @@ export default function IncentivePage() {
                 return (
                   <tr key={r.rowKey} className="bg-white">
                     <td className="whitespace-nowrap px-4 py-3 tabular-nums text-slate-600">{r.date}</td>
-                    <td className="whitespace-nowrap px-4 py-3 font-medium text-slate-800">{r.stockId}</td>
                     <td className="whitespace-nowrap px-4 py-3 text-slate-800">{r.shop}</td>
                     <td className="whitespace-nowrap px-4 py-3">
                       <span
@@ -1025,54 +1336,36 @@ export default function IncentivePage() {
                     </td>
                     <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">{r.bags.toLocaleString()}</td>
                     <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">
-                      {moneyOrDashStyled(r.perBagPrice)}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">
                       {moneyOrDashStyled(r.cutOffPrice)}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">
-                      {moneyOrDashStyled(r.cutOffIncentivePerBag)}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">
-                      {moneyOrDashStyled(r.transportPerBag)}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">
-                      {moneyOrDashStyled(r.totalCostPerBag)}
                     </td>
                     <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">
                       {moneyOrDashStyled(r.sellingPricePerBag)}
                     </td>
                     <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">
-                      {moneyOrDashStyled(r.incentivePerBag)}
+                      {moneyOrDashStyled(r.differencePerBag)}
                     </td>
                     <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">
-                      {moneyOrDashStyled(r.pureIncentivePerBag)}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">
-                      {moneyOrDashStyled(r.totalIncentive)}
+                      {moneyOrDashStyled(r.totalDifference)}
                     </td>
                   </tr>
                 );
               })
             )}
           </tbody>
-          {!loading && filteredDistributionRows.length > 0 ? (
+          {!loading && filteredSpecialPriceDistributionRows.length > 0 ? (
             <tfoot>
               <tr className="border-t-2 border-slate-200 bg-slate-50/90 font-semibold text-slate-900">
-                <td colSpan={4} className="px-4 py-3">
+                <td colSpan={3} className="px-4 py-3">
                   Grand total (filtered)
                 </td>
                 <td className="px-4 py-3 text-right tabular-nums">{distributionTotals.bags.toLocaleString()}</td>
                 <td className="px-4 py-3" />
                 <td className="px-4 py-3" />
                 <td className="px-4 py-3" />
-                <td className="px-4 py-3" />
-                <td className="px-4 py-3" />
-                <td className="px-4 py-3" />
-                <td className="px-4 py-3" />
-                <td className="px-4 py-3" />
                 <td className="px-4 py-3 text-right tabular-nums">
-                  {distributionTotals.hasTotalIncentive ? moneyOrDashStyled(distributionTotals.totalIncentive) : '—'}
+                  {distributionTotals.hasTotalDifference
+                    ? moneyOrDashStyled(distributionTotals.totalDifference)
+                    : '—'}
                 </td>
               </tr>
             </tfoot>
@@ -1080,7 +1373,7 @@ export default function IncentivePage() {
         </table>
       </div>
 
-      {!loading && filteredDistributionRows.length > 0 ? (
+      {!loading && filteredSpecialPriceDistributionRows.length > 0 ? (
         <TablePaginationBar
           page={distributionPagination.page}
           totalPages={distributionPagination.totalPages}
@@ -1096,6 +1389,32 @@ export default function IncentivePage() {
         row={detailRow}
         variant="incentive"
         onClose={() => setDetailRow(null)}
+      />
+
+      <DistributionFilterModal
+        open={incentiveFilterOpen}
+        title="Filter Incentive Calculator"
+        description="Narrow rows by date, shop, bag type, stock ID, or free-text search."
+        titleId="incentive-filter-modal-title"
+        draft={incentiveFilterDraft}
+        setDraft={setIncentiveFilterDraft}
+        shopOptions={incentiveShopOptions}
+        onApply={applyIncentiveFilters}
+        onClear={clearIncentiveFilters}
+        onClose={closeIncentiveFilterPopup}
+      />
+
+      <DistributionFilterModal
+        open={specialPriceFilterOpen}
+        title="Filter Special Price Calculator"
+        description="Narrow rows by date, shop, bag type, stock ID, or free-text search."
+        titleId="special-price-filter-modal-title"
+        draft={specialPriceFilterDraft}
+        setDraft={setSpecialPriceFilterDraft}
+        shopOptions={incentiveShopOptions}
+        onApply={applySpecialPriceFilters}
+        onClear={clearSpecialPriceFilters}
+        onClose={closeSpecialPriceFilterPopup}
       />
     </div>
   );

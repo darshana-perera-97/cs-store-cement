@@ -3,8 +3,8 @@ import { getApiBase } from '../apiBase';
 import { BRANDS } from './brandTheme';
 import RowDetailModal, { detailRowAttrs } from './RowDetailModal';
 import {
-  buildBasicIncentiveRows,
-  buildShopGroupedBasicIncentiveRows,
+  buildLoadBasedBasicIncentiveRows,
+  buildStockGroupedBasicIncentiveRows,
   downloadBasicIncentiveExcel,
   downloadBasicIncentivePdf,
   downloadStockWiseIncentiveExcel,
@@ -39,15 +39,40 @@ const EMPTY_INCENTIVE_FILTERS = {
   stockId: '',
 };
 
-function countActiveIncentiveFilters(filters) {
+function countActiveIncentiveFilters(filters, { includeShop = true } = {}) {
   let count = 0;
   if (String(filters.search ?? '').trim()) count += 1;
   if (filters.dateFrom) count += 1;
   if (filters.dateTo) count += 1;
-  if (filters.shop) count += 1;
+  if (includeShop && filters.shop) count += 1;
   if (filters.brand) count += 1;
   if (String(filters.stockId ?? '').trim()) count += 1;
   return count;
+}
+
+function filterLoadIncentiveRows(rows, filters) {
+  const { search, dateFrom, dateTo, brand, stockId } = filters;
+  const stockIdQuery = String(stockId ?? '').trim().toLowerCase();
+
+  return rows.filter((r) => {
+    if (!inDateRange(r.date, dateFrom, dateTo)) return false;
+    if (brand && r.brandKey !== brand) return false;
+    if (stockIdQuery && !String(r.stockId ?? '').toLowerCase().includes(stockIdQuery)) return false;
+
+    return rowMatchesQuery(search, [
+      r.date,
+      r.stockId,
+      r.invoiceNumber,
+      r.brandLabel,
+      String(r.bags),
+      String(r.perBagPrice),
+      String(r.cutOffPrice),
+      String(r.transportPerBag),
+      String(r.totalCostPerBag),
+      String(r.basicIncentivePerBag),
+      String(r.basicTotalIncentive),
+    ]);
+  });
 }
 
 function filterDistributionRows(rows, filters, customerLocationMap) {
@@ -92,6 +117,7 @@ function DistributionFilterModal({
   draft,
   setDraft,
   shopOptions,
+  showShopFilter = true,
   onApply,
   onClear,
   onClose,
@@ -129,7 +155,7 @@ function DistributionFilterModal({
               type="search"
               value={draft.search}
               onChange={(e) => setDraft((prev) => ({ ...prev, search: e.target.value }))}
-              placeholder="Shop, stock ID, bag type, amounts…"
+              placeholder={showShopFilter ? 'Shop, stock ID, bag type, amounts…' : 'Stock ID, invoice, bag type, amounts…'}
               className={filterControl}
             />
           </label>
@@ -153,21 +179,23 @@ function DistributionFilterModal({
               />
             </label>
           </div>
-          <label className="block text-sm font-medium text-slate-600">
-            Shop
-            <select
-              value={draft.shop}
-              onChange={(e) => setDraft((prev) => ({ ...prev, shop: e.target.value }))}
-              className={filterControl}
-            >
-              <option value="">All shops</option>
-              {shopOptions.map((shop) => (
-                <option key={shop} value={shop}>
-                  {shop}
-                </option>
-              ))}
-            </select>
-          </label>
+          {showShopFilter ? (
+            <label className="block text-sm font-medium text-slate-600">
+              Shop
+              <select
+                value={draft.shop}
+                onChange={(e) => setDraft((prev) => ({ ...prev, shop: e.target.value }))}
+                className={filterControl}
+              >
+                <option value="">All shops</option>
+                {shopOptions.map((shop) => (
+                  <option key={shop} value={shop}>
+                    {shop}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="block text-sm font-medium text-slate-600">
               Bag type
@@ -637,9 +665,14 @@ export default function IncentivePage() {
     return [...shops].sort((a, b) => a.localeCompare(b));
   }, [distributionRows]);
 
-  const filteredIncentiveDistributionRows = useMemo(
-    () => filterDistributionRows(distributionRows, incentiveFilters, customerLocationMap),
-    [distributionRows, incentiveFilters, customerLocationMap],
+  const loadBasicIncentiveRows = useMemo(
+    () => buildLoadBasedBasicIncentiveRows(tableRows),
+    [tableRows],
+  );
+
+  const filteredLoadBasicIncentiveRows = useMemo(
+    () => filterLoadIncentiveRows(loadBasicIncentiveRows, incentiveFilters),
+    [loadBasicIncentiveRows, incentiveFilters],
   );
 
   const filteredSpecialPriceDistributionRows = useMemo(
@@ -648,7 +681,7 @@ export default function IncentivePage() {
   );
 
   const activeIncentiveFilterCount = useMemo(
-    () => countActiveIncentiveFilters(incentiveFilters),
+    () => countActiveIncentiveFilters(incentiveFilters, { includeShop: false }),
     [incentiveFilters],
   );
 
@@ -662,13 +695,10 @@ export default function IncentivePage() {
     [filteredSpecialPriceDistributionRows],
   );
 
-  const basicIncentiveRows = useMemo(
-    () => buildBasicIncentiveRows(filteredIncentiveDistributionRows, customerLocationMap),
-    [filteredIncentiveDistributionRows, customerLocationMap],
-  );
+  const basicIncentiveRows = filteredLoadBasicIncentiveRows;
 
   const groupedBasicIncentiveRows = useMemo(
-    () => buildShopGroupedBasicIncentiveRows(basicIncentiveRows),
+    () => buildStockGroupedBasicIncentiveRows(basicIncentiveRows),
     [basicIncentiveRows],
   );
 
@@ -766,7 +796,6 @@ export default function IncentivePage() {
       dateFrom: incentiveFilters.dateFrom,
       dateTo: incentiveFilters.dateTo,
       search: incentiveFilters.search,
-      shop: incentiveFilters.shop,
       stockId: incentiveFilters.stockId,
       brandLabel: incentiveFilters.brand
         ? brandByKey[incentiveFilters.brand]?.label ?? incentiveFilters.brand
@@ -1030,10 +1059,13 @@ export default function IncentivePage() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-base font-semibold text-slate-900">Incentive Calculator</h2>
-          {!loading && distributionRows.length > 0 ? (
+          <p className="mt-1 text-sm text-slate-500">
+            Incentive on all bags received per stock load (not sold allocations).
+          </p>
+          {!loading && loadBasicIncentiveRows.length > 0 ? (
             <p className="mt-1 text-sm text-slate-500">
-              Showing {basicIncentiveRows.length} of {distributionRows.length} line
-              {distributionRows.length === 1 ? '' : 's'}
+              Showing {basicIncentiveRows.length} of {loadBasicIncentiveRows.length} line
+              {loadBasicIncentiveRows.length === 1 ? '' : 's'}
               {activeIncentiveFilterCount > 0 ? ` · ${activeIncentiveFilterCount} filter${activeIncentiveFilterCount === 1 ? '' : 's'} active` : ''}.
             </p>
           ) : null}
@@ -1093,7 +1125,7 @@ export default function IncentivePage() {
             <tr className="border-b border-slate-100 bg-slate-50/90 text-xs font-semibold uppercase tracking-wide text-slate-500">
               <th className="whitespace-nowrap px-4 py-3">Date</th>
               <th className="whitespace-nowrap px-4 py-3">StockID</th>
-              <th className="whitespace-nowrap px-4 py-3">Shop name + Location</th>
+              <th className="whitespace-nowrap px-4 py-3">Invoice number</th>
               <th className="whitespace-nowrap px-4 py-3">Bag type</th>
               <th className="whitespace-nowrap px-4 py-3 text-right">No. Bags</th>
               <th className="whitespace-nowrap px-4 py-3 text-right">Bag Price in Invoice</th>
@@ -1111,10 +1143,10 @@ export default function IncentivePage() {
                   Loading…
                 </td>
               </tr>
-            ) : distributionRows.length === 0 ? (
+            ) : loadBasicIncentiveRows.length === 0 ? (
               <tr>
                 <td colSpan={11} className="px-4 py-10 text-center text-slate-500">
-                  No shop distributions yet. Add credit bills on the Bills page to see allocations here.
+                  No stock loads yet. Add loads on the Loads page to see incentive data here.
                 </td>
               </tr>
             ) : basicIncentiveRows.length === 0 ? (
@@ -1125,14 +1157,15 @@ export default function IncentivePage() {
               </tr>
             ) : (
               pagedBasicRows.map((r) => {
-                if (r.type === 'shopTotal') {
+                if (r.type === 'stockTotal') {
                   return (
                     <tr
                       key={r.rowKey}
                       className="border-t border-slate-200 bg-slate-100/90 font-semibold text-slate-900"
                     >
-                      <td colSpan={3} className="px-4 py-3">
-                        {r.shopLocation} total
+                      <td className="px-4 py-3" />
+                      <td colSpan={2} className="px-4 py-3">
+                        {r.stockId} total
                       </td>
                       <td className="px-4 py-3" />
                       <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">{r.bags.toLocaleString()}</td>
@@ -1153,7 +1186,7 @@ export default function IncentivePage() {
                   <tr key={r.rowKey} className="bg-white">
                     <td className="whitespace-nowrap px-4 py-3 tabular-nums text-slate-600">{r.date}</td>
                     <td className="whitespace-nowrap px-4 py-3 font-medium text-slate-800">{r.stockId}</td>
-                    <td className="whitespace-nowrap px-4 py-3 text-slate-800">{r.shopLocation}</td>
+                    <td className="whitespace-nowrap px-4 py-3 text-slate-800">{r.invoiceNumber ?? '—'}</td>
                     <td className="whitespace-nowrap px-4 py-3">
                       <span
                         className={`inline-flex rounded-lg px-2.5 py-1 text-xs font-semibold ${brand?.iconBg || 'bg-slate-100 text-slate-700'}`}
@@ -1394,11 +1427,12 @@ export default function IncentivePage() {
       <DistributionFilterModal
         open={incentiveFilterOpen}
         title="Filter Incentive Calculator"
-        description="Narrow rows by date, shop, bag type, stock ID, or free-text search."
+        description="Narrow rows by load date, bag type, stock ID, invoice, or free-text search."
         titleId="incentive-filter-modal-title"
         draft={incentiveFilterDraft}
         setDraft={setIncentiveFilterDraft}
         shopOptions={incentiveShopOptions}
+        showShopFilter={false}
         onApply={applyIncentiveFilters}
         onClear={clearIncentiveFilters}
         onClose={closeIncentiveFilterPopup}

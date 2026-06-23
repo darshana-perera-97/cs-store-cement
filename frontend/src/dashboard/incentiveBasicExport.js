@@ -9,7 +9,7 @@ const TABLE_HEAD = [
   [
     'Date',
     'StockID',
-    'Shop name + Location',
+    'Invoice number',
     'Bag type',
     'No. Bags',
     'Bag Price in Invoice',
@@ -119,6 +119,34 @@ export function buildBasicIncentiveRows(distributionRows, locationMap) {
     return {
       ...r,
       shopLocation: shopLocationLabel(r.shop, location),
+      basicIncentivePerBag,
+      basicTotalIncentive,
+    };
+  });
+}
+
+/** One row per stock load × brand — incentive on all bags received, not sold allocations. */
+export function buildLoadBasedBasicIncentiveRows(loadRows) {
+  return (loadRows || []).map((r) => {
+    const totalCostPerBag = r.unloadingPrice;
+    const basicIncentivePerBag = priceDiffPerBag(totalCostPerBag, r.cutOffPrice);
+    const basicTotalIncentive =
+      basicIncentivePerBag != null
+        ? round2(basicIncentivePerBag * (Number(r.bags) || 0))
+        : null;
+    return {
+      rowKey: r.rowKey,
+      date: r.date,
+      loadDate: r.date,
+      stockId: r.stockId,
+      brandKey: r.brandKey,
+      brandLabel: r.brandLabel,
+      bags: r.bags,
+      perBagPrice: r.perBagCost,
+      transportPerBag: r.transportPerBag,
+      cutOffPrice: r.cutOffPrice,
+      totalCostPerBag,
+      invoiceNumber: r.invoiceNumber ?? '—',
       basicIncentivePerBag,
       basicTotalIncentive,
     };
@@ -370,7 +398,7 @@ function rowToCells(r) {
   return [
     String(r.date ?? ''),
     String(r.stockId ?? ''),
-    String(r.shopLocation ?? r.shop ?? ''),
+    String(r.invoiceNumber ?? r.shopLocation ?? r.shop ?? '—'),
     String(r.brandLabel ?? ''),
     Number(r.bags) || 0,
     r.perBagPrice,

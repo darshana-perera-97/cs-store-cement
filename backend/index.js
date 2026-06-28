@@ -1343,6 +1343,92 @@ app.post('/api/promotions', async (req, res) => {
   }
 });
 
+app.patch('/api/promotions/:id', async (req, res) => {
+  try {
+    const id = String(req.params.id ?? '').trim();
+    if (!id) {
+      return res.status(400).json({ error: 'Promotion id is required' });
+    }
+    const body = req.body || {};
+    const updatedBy = String(body.updatedBy ?? body.enteredBy ?? '').trim();
+    if (!updatedBy) {
+      return res.status(400).json({ error: 'updatedBy (username) is required' });
+    }
+    const customerId = String(body.customerId ?? '').trim();
+    if (!customerId) {
+      return res.status(400).json({ error: 'customerId is required' });
+    }
+
+    let date = String(body.date ?? '').trim();
+    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return res.status(400).json({ error: 'date must be YYYY-MM-DD' });
+    }
+
+    const reason = String(body.reason ?? '').trim();
+    if (!reason) {
+      return res.status(400).json({ error: 'reason is required' });
+    }
+
+    let billNumber = '';
+    if (body.billNumber != null && String(body.billNumber).trim() !== '') {
+      const norm = normalizePaymentBillNumber(body.billNumber);
+      if (!norm) {
+        return res.status(400).json({ error: 'billNumber must be 1–3 digits when provided' });
+      }
+      billNumber = norm;
+    }
+
+    const tokyoBags = toNonNegNumber(body.tokyoBags);
+    const samudraBags = toNonNegNumber(body.samudraBags);
+    const atlasBags = toNonNegNumber(body.atlasBags);
+    const nipponBags = toNonNegNumber(body.nipponBags);
+    const bagSum = tokyoBags + samudraBags + atlasBags + nipponBags;
+    if (bagSum <= 0) {
+      return res.status(400).json({ error: 'Enter at least one free bag (any brand).' });
+    }
+
+    const customers = await readCustomers();
+    const cust = customers.find((c) => c.id === customerId);
+    if (!cust) {
+      return res.status(400).json({ error: 'Customer not found' });
+    }
+
+    const promos = await readPromotions();
+    const idx = promos.findIndex((p) => p.id === id);
+    if (idx < 0) {
+      return res.status(404).json({ error: 'Promotion not found' });
+    }
+
+    const existing = promos[idx];
+    const row = {
+      ...existing,
+      date,
+      customerId: cust.id,
+      customerName: cust.name,
+      billNumber,
+      reason,
+      tokyoBags,
+      samudraBags,
+      atlasBags,
+      nipponBags,
+      updatedBy,
+      updatedAt: new Date().toISOString(),
+    };
+
+    promos[idx] = row;
+    await writePromotions(promos);
+    try {
+      await refreshLiveStockFromSources();
+    } catch (err) {
+      console.error('liveStock refresh after promotion update', err);
+    }
+    res.json(row);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Failed to update promotion' });
+  }
+});
+
 app.get('/api/activity', async (req, res) => {
   try {
     const limit = Math.min(50, Math.max(1, parseInt(String(req.query.limit), 10) || 5));

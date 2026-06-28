@@ -42,12 +42,28 @@ function emptyForm() {
   return f;
 }
 
+function formFromPromotion(promo) {
+  const billDigits = String(promo.billNumber ?? '').replace(/\D/g, '');
+  const f = {
+    date: promo.date || new Date().toISOString().slice(0, 10),
+    customerId: promo.customerId || '',
+    billNumber: billDigits ? String(parseInt(billDigits, 10)) : '',
+    reason: promo.reason || '',
+  };
+  for (const b of BRANDS) {
+    const v = promo[`${b.key}Bags`];
+    f[`${b.key}Bags`] = v != null && v !== '' ? String(v) : '';
+  }
+  return f;
+}
+
 export default function PromotionsPage() {
   const [rows, setRows] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [modalOpen, setModalOpen] = useState(false);
+  const [editPromotion, setEditPromotion] = useState(null);
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(null);
@@ -114,14 +130,26 @@ export default function PromotionsPage() {
   );
 
   const openModal = () => {
+    setEditPromotion(null);
     setForm(emptyForm());
     setSaveError(null);
     loadCustomers();
     setModalOpen(true);
   };
 
+  const openPromotionEdit = (promo) => {
+    if (!promo?.id) return;
+    setSaveError(null);
+    loadCustomers();
+    setEditPromotion(promo);
+    setForm(formFromPromotion(promo));
+    setDetailRow(null);
+    setModalOpen(true);
+  };
+
   const closeModal = () => {
     setModalOpen(false);
+    setEditPromotion(null);
     setSaveError(null);
   };
 
@@ -152,8 +180,7 @@ export default function PromotionsPage() {
     setSaving(true);
     setSaveError(null);
     try {
-      const body = {
-        enteredBy: username,
+      const payload = {
         date: form.date,
         customerId: form.customerId,
         billNumber: form.billNumber || undefined,
@@ -163,11 +190,17 @@ export default function PromotionsPage() {
         atlasBags: form.atlasBags,
         nipponBags: form.nipponBags,
       };
-      const res = await fetch(`${apiBase}/api/promotions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
+      const isEdit = !!editPromotion?.id;
+      const res = await fetch(
+        isEdit ? `${apiBase}/api/promotions/${encodeURIComponent(editPromotion.id)}` : `${apiBase}/api/promotions`,
+        {
+          method: isEdit ? 'PATCH' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(
+            isEdit ? { ...payload, updatedBy: username } : { ...payload, enteredBy: username },
+          ),
+        },
+      );
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setSaveError(data.error || 'Save failed');
@@ -341,7 +374,7 @@ export default function PromotionsPage() {
           />
           <div className={modalPanelClass}>
             <h2 id="promo-modal-title" className="text-lg font-bold text-slate-900">
-              Add promotion (free bags)
+              {editPromotion ? 'Edit promotion (free bags)' : 'Add promotion (free bags)'}
             </h2>
             <p className="mt-1 text-sm text-slate-500">
               Logged in as {getUsername() || '—'}. Reduces live stock totals; no payment or customer balance change.
@@ -424,7 +457,7 @@ export default function PromotionsPage() {
                   disabled={saving}
                   className="rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-indigo-500/25 transition hover:bg-indigo-700 disabled:opacity-50"
                 >
-                  {saving ? 'Saving…' : 'Save promotion'}
+                  {saving ? 'Saving…' : editPromotion ? 'Save changes' : 'Save promotion'}
                 </button>
                 <button
                   type="button"
@@ -439,7 +472,21 @@ export default function PromotionsPage() {
         </div>
       ) : null}
 
-      <RowDetailModal open={!!detailRow} row={detailRow} variant="promotion" onClose={() => setDetailRow(null)} />
+      <RowDetailModal
+        open={!!detailRow}
+        row={detailRow}
+        variant="promotion"
+        onClose={() => setDetailRow(null)}
+        actions={
+          <button
+            type="button"
+            onClick={() => openPromotionEdit(detailRow)}
+            className="mt-4 w-full rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2.5 text-sm font-semibold text-indigo-800 ring-1 ring-indigo-100 hover:bg-indigo-100"
+          >
+            Edit promotion
+          </button>
+        }
+      />
     </div>
   );
 }

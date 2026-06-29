@@ -9,6 +9,7 @@ import {
   stickyThead,
 } from './tableToolbar';
 import { buildChequeTableRows, chequePortion } from './paymentCheques';
+import { downloadCustomerOutstandingReport } from './customerOutstandingExport';
 import { downloadReportsPdf } from './reportsPdf';
 import { downloadRefReport } from './reportsRefExport';
 
@@ -497,15 +498,150 @@ export default function ReportsPage() {
   const downloadBtnClass =
     'rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 shadow-sm ring-1 ring-slate-100 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50';
 
+  const todayYmd = useMemo(() => localYmd(), []);
+
+  const outstandingSummary = useMemo(() => {
+    let totalOutstanding = 0;
+    let totalCredit = 0;
+    let withBalance = 0;
+    for (const c of customers) {
+      const outstanding = Math.max(0, Number(c.remainingAmount) || 0);
+      const credit = Math.max(0, Number(c.overpaymentAmount) || 0);
+      totalOutstanding += outstanding;
+      totalCredit += credit;
+      if (outstanding > 0) withBalance += 1;
+    }
+    return { totalOutstanding, totalCredit, withBalance, customerCount: customers.length };
+  }, [customers]);
+
+  const outstandingRows = useMemo(() => {
+    return [...customers]
+      .map((c) => ({
+        id: c.id,
+        name: String(c.name ?? '').trim() || '—',
+        location: String(c.location ?? '').trim(),
+        dueDate: String(c.dueDate ?? '').slice(0, 10) || '—',
+        outstanding: Math.max(0, Number(c.remainingAmount) || 0),
+        credit: Math.max(0, Number(c.overpaymentAmount) || 0),
+      }))
+      .filter((r) => r.outstanding > 0 || r.credit > 0)
+      .sort((a, b) => {
+        const balCmp = b.outstanding - a.outstanding;
+        if (balCmp !== 0) return balCmp;
+        return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+      });
+  }, [customers]);
+
+  const handleDownloadOutstanding = useCallback(() => {
+    downloadCustomerOutstandingReport(customers, { asOfDate: todayYmd });
+  }, [customers, todayYmd]);
+
   return (
     <div className="space-y-5">
       <div className="rounded-[20px] bg-white p-5 shadow-lg shadow-slate-200/40 ring-1 ring-slate-100 sm:p-6">
         <h1 className="text-lg font-bold text-slate-900">Reports</h1>
         <p className="mt-1 text-sm text-slate-500">
-          Generate weekly, monthly, or custom-period reports for cement bags from loads, bags sold on credit,
-          credit sales, cash received per shop, bank cash deposits, and cheques still to be deposited.
+          Download today&apos;s customer outstanding balances, or generate weekly, monthly, and custom-period
+          reports for cement bags, credit sales, bank deposits, and pending cheques.
         </p>
       </div>
+
+      <Card
+        title="Customer outstanding (today)"
+        subtitle={`Snapshot as of ${todayYmd} — all customers with current balance owed or credit on account`}
+      >
+        <div className="grid gap-3 sm:grid-cols-3">
+          <div className="rounded-xl bg-indigo-50 p-4 ring-1 ring-indigo-100">
+            <p className="text-xs font-semibold uppercase tracking-wide text-indigo-700">Total outstanding</p>
+            <p className="mt-1 text-xl font-bold tabular-nums text-indigo-900">
+              {money(outstandingSummary.totalOutstanding)}
+            </p>
+            <p className="mt-0.5 text-xs text-indigo-600">
+              {outstandingSummary.withBalance} customer{outstandingSummary.withBalance === 1 ? '' : 's'} with balance due
+            </p>
+          </div>
+          <div className="rounded-xl bg-emerald-50 p-4 ring-1 ring-emerald-100">
+            <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Total credit</p>
+            <p className="mt-1 text-xl font-bold tabular-nums text-emerald-900">
+              {money(outstandingSummary.totalCredit)}
+            </p>
+            <p className="mt-0.5 text-xs text-emerald-600">Overpayment on account</p>
+          </div>
+          <div className="rounded-xl bg-slate-50 p-4 ring-1 ring-slate-200">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Customers</p>
+            <p className="mt-1 text-xl font-bold tabular-nums text-slate-900">
+              {outstandingSummary.customerCount}
+            </p>
+            <p className="mt-0.5 text-xs text-slate-500">Included in download</p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={handleDownloadOutstanding}
+          disabled={loading || !!error || customers.length === 0}
+          className="mt-4 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Download outstanding (PDF + Excel)
+        </button>
+
+        <div className={`mt-5 ${scrollTableWrap}`}>
+          <table className="w-full min-w-[720px] border-separate border-spacing-0 text-left text-sm">
+            <thead className={stickyThead}>
+              <tr className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <th className="px-4 py-3">Shop</th>
+                <th className="px-4 py-3">Location</th>
+                <th className="whitespace-nowrap px-4 py-3">Due date</th>
+                <th className="whitespace-nowrap px-4 py-3 text-right">Outstanding</th>
+                <th className="whitespace-nowrap px-4 py-3 text-right">Credit</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
+                    Loading customer balances…
+                  </td>
+                </tr>
+              ) : outstandingRows.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
+                    No customers with an outstanding balance or credit on account.
+                  </td>
+                </tr>
+              ) : (
+                outstandingRows.map((r) => (
+                  <tr key={r.id} className="border-t border-slate-100 hover:bg-slate-50/80">
+                    <td className="px-4 py-3 font-medium text-slate-900">{r.name}</td>
+                    <td className="px-4 py-3 text-slate-600">{r.location || '—'}</td>
+                    <td className="whitespace-nowrap px-4 py-3 tabular-nums text-slate-600">{r.dueDate}</td>
+                    <td className="whitespace-nowrap px-4 py-3 text-right font-semibold tabular-nums text-indigo-800">
+                      {r.outstanding > 0 ? money(r.outstanding) : '—'}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-emerald-700">
+                      {r.credit > 0 ? money(r.credit) : '—'}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+            {!loading && outstandingRows.length > 0 ? (
+              <tfoot>
+                <tr className="border-t-2 border-slate-200 bg-slate-50/90 font-semibold text-slate-900">
+                  <td className="px-4 py-3" colSpan={3}>
+                    Total ({outstandingSummary.customerCount} customers in download)
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-indigo-800">
+                    {money(outstandingSummary.totalOutstanding)}
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-emerald-700">
+                    {outstandingSummary.totalCredit > 0 ? money(outstandingSummary.totalCredit) : '—'}
+                  </td>
+                </tr>
+              </tfoot>
+            ) : null}
+          </table>
+        </div>
+      </Card>
 
       <TableFiltersBar hint={!loading ? filterHint : null}>
         <div className="flex flex-col gap-2">

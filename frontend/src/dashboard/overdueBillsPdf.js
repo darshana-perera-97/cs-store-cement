@@ -8,6 +8,34 @@ function formatLkr(n) {
   }).format(Number(n) || 0);
 }
 
+function todayYmdLocal() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function daysFromYmdToToday(fromYmd, toYmd = todayYmdLocal()) {
+  if (!fromYmd || !toYmd || fromYmd.length < 10 || toYmd.length < 10) return null;
+  const t0 = new Date(
+    parseInt(fromYmd.slice(0, 4), 10),
+    parseInt(fromYmd.slice(5, 7), 10) - 1,
+    parseInt(fromYmd.slice(8, 10), 10),
+  ).getTime();
+  const t1 = new Date(
+    parseInt(toYmd.slice(0, 4), 10),
+    parseInt(toYmd.slice(5, 7), 10) - 1,
+    parseInt(toYmd.slice(8, 10), 10),
+  ).getTime();
+  return Math.max(0, Math.round((t1 - t0) / (24 * 60 * 60 * 1000)));
+}
+
+function daysFromBillDateForRow(row) {
+  if (row?.daysFromBillDate != null && row.daysFromBillDate !== '') return row.daysFromBillDate;
+  return daysFromYmdToToday(row?.billDate) ?? 0;
+}
+
 function groupRowsByShop(rows) {
   const groups = new Map();
   for (const row of rows) {
@@ -38,6 +66,8 @@ function buildGroupedTableBody(rows) {
         String(bill.details ?? '')
           .replace(/\s+/g, ' ')
           .trim(),
+        String(bill.billDate ?? ''),
+        String(daysFromBillDateForRow(bill)),
         String(bill.dueDate ?? ''),
         String(bill.daysOverdue ?? 0),
         formatLkr(bill.outstandingAmount),
@@ -51,6 +81,8 @@ function buildGroupedTableBody(rows) {
       `${sortedBills.length} overdue bill${sortedBills.length === 1 ? '' : 's'} — shop total`,
       '',
       '',
+      '',
+      '',
       formatLkr(shopOutstanding),
     ]);
   }
@@ -60,7 +92,7 @@ function buildGroupedTableBody(rows) {
 
 /**
  * Build an A4 portrait PDF of overdue bills (multi-page when needed).
- * @param {Array<{ customerName: string, details: string, dueDate: string, daysOverdue: number, billTotal: number, outstandingAmount: number }>} rows
+ * @param {Array<{ customerName: string, billDate: string, details: string, dueDate: string, daysFromBillDate?: number, daysOverdue: number, billTotal: number, outstandingAmount: number }>} rows
  */
 export function downloadOverdueBillsPdf(rows, options = {}) {
   const { generatedAt = new Date() } = options;
@@ -95,12 +127,16 @@ export function downloadOverdueBillsPdf(rows, options = {}) {
   );
   doc.setTextColor(0, 0, 0);
 
-  const head = [['Shop', 'Bill details', 'Due date', 'Days overdue', 'Outstanding']];
+  const head = [
+    ['Shop', 'Bill details', 'Bill date', 'Days from bill date', 'Due date', 'Days overdue', 'Outstanding'],
+  ];
   const { body, subtotalRowIndices } = buildGroupedTableBody(safeRows);
 
   const grandOutstanding = safeRows.reduce((sum, r) => sum + (Number(r.outstandingAmount) || 0), 0);
   const foot = [
     [
+      '',
+      '',
       '',
       '',
       '',
@@ -128,11 +164,13 @@ export function downloadOverdueBillsPdf(rows, options = {}) {
     },
     alternateRowStyles: { fillColor: [248, 250, 252] },
     columnStyles: {
-      0: { cellWidth: 32 },
-      1: { cellWidth: 72 },
-      2: { cellWidth: 24 },
-      3: { halign: 'right', cellWidth: 22 },
-      4: { halign: 'right', cellWidth: 30 },
+      0: { cellWidth: 26 },
+      1: { cellWidth: 44 },
+      2: { cellWidth: 20 },
+      3: { halign: 'right', cellWidth: 18 },
+      4: { cellWidth: 20 },
+      5: { halign: 'right', cellWidth: 16 },
+      6: { halign: 'right', cellWidth: 24 },
     },
     tableWidth: pageW - margin * 2,
     showHead: 'everyPage',
@@ -141,7 +179,7 @@ export function downloadOverdueBillsPdf(rows, options = {}) {
       data.cell.styles.fontStyle = 'bold';
       data.cell.styles.fillColor = [241, 245, 249];
       data.cell.styles.textColor = [15, 23, 42];
-      if (data.column.index === 4) {
+      if (data.column.index === 6) {
         data.cell.styles.textColor = [190, 18, 60];
       }
     },

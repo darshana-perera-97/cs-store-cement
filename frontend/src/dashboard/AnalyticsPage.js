@@ -80,6 +80,41 @@ function formatRelativeTime(iso) {
   return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
+function todayYmdLocal() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function daysFromYmdToToday(fromYmd, toYmd = todayYmdLocal()) {
+  if (!fromYmd || !toYmd || fromYmd.length < 10 || toYmd.length < 10) return null;
+  const t0 = new Date(
+    parseInt(fromYmd.slice(0, 4), 10),
+    parseInt(fromYmd.slice(5, 7), 10) - 1,
+    parseInt(fromYmd.slice(8, 10), 10),
+  ).getTime();
+  const t1 = new Date(
+    parseInt(toYmd.slice(0, 4), 10),
+    parseInt(toYmd.slice(5, 7), 10) - 1,
+    parseInt(toYmd.slice(8, 10), 10),
+  ).getTime();
+  return Math.max(0, Math.round((t1 - t0) / (24 * 60 * 60 * 1000)));
+}
+
+function enrichOverdueBillRow(row) {
+  if (row == null || typeof row !== 'object') return row;
+  if (row.daysFromBillDate != null && row.daysFromBillDate !== '') return row;
+  const days = daysFromYmdToToday(row.billDate);
+  return days == null ? row : { ...row, daysFromBillDate: days };
+}
+
+function overdueDaysFromBillDate(row) {
+  if (row?.daysFromBillDate != null && row.daysFromBillDate !== '') return row.daysFromBillDate;
+  return daysFromYmdToToday(row?.billDate);
+}
+
 function Card({ title, subtitle, children, className = '', headerExtra = null }) {
   return (
     <div
@@ -108,11 +143,13 @@ function OverdueBillsTable({ rows, totalLoadedCount, defaultPageSize = 10, reset
   return (
     <div className="space-y-3">
       <div className={`-mx-1 ${scrollTableWrap}`}>
-        <table className="w-full min-w-[720px] border-separate border-spacing-0 text-left text-sm">
+        <table className="w-full min-w-[900px] border-separate border-spacing-0 text-left text-sm">
           <thead className={stickyThead}>
             <tr className="text-xs font-semibold uppercase tracking-wide text-slate-400">
               <th className="pb-3 pl-1 pr-3">Customer</th>
               <th className="pb-3 pr-3">Bill details</th>
+              <th className="pb-3 pr-3">Bill date</th>
+              <th className="pb-3 pr-3 text-right">Days from bill date</th>
               <th className="pb-3 pr-3">Due date</th>
               <th className="pb-3 pr-3 text-right">Days overdue</th>
               <th className="pb-3 pr-1 text-right">Outstanding</th>
@@ -121,7 +158,7 @@ function OverdueBillsTable({ rows, totalLoadedCount, defaultPageSize = 10, reset
           <tbody className="divide-y divide-slate-50">
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={5} className="py-8 text-center text-sm text-slate-500">
+                <td colSpan={7} className="py-8 text-center text-sm text-slate-500">
                   {totalLoadedCount === 0 ? 'No overdue bills.' : 'No rows match your search.'}
                 </td>
               </tr>
@@ -137,6 +174,10 @@ function OverdueBillsTable({ rows, totalLoadedCount, defaultPageSize = 10, reset
                 </td>
                 <td className="max-w-[260px] py-3.5 pr-3 text-xs leading-snug text-slate-600 sm:text-sm">
                   <span className="line-clamp-3">{row.details}</span>
+                </td>
+                <td className="whitespace-nowrap py-3.5 pr-3 tabular-nums text-slate-600">{row.billDate}</td>
+                <td className="py-3.5 pr-3 text-right tabular-nums text-slate-700">
+                  {overdueDaysFromBillDate(row) ?? '—'}
                 </td>
                 <td className="whitespace-nowrap py-3.5 pr-3 tabular-nums text-slate-600">{row.dueDate}</td>
                 <td className="py-3.5 pr-3 text-right">
@@ -280,7 +321,7 @@ export default function AnalyticsPage() {
           }
           if (overdueRes.ok) {
             const rows = await overdueRes.json();
-            setOverdueBills(Array.isArray(rows) ? rows : []);
+            setOverdueBills(Array.isArray(rows) ? rows.map(enrichOverdueBillRow) : []);
           } else {
             setOverdueBills([]);
           }
@@ -353,6 +394,7 @@ export default function AnalyticsPage() {
         row.billDate,
         row.dueDate,
         row.daysOverdue,
+        row.daysFromBillDate,
         row.outstandingAmount,
         row.billTotal,
       ]),

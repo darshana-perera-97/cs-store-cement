@@ -53,10 +53,9 @@ export default function CashOutPage() {
   const chequeRows = useMemo(() => buildStockChequeRows(loads), [loads]);
 
   const upcomingRows = useMemo(() => buildUpcomingConvertingRows(chequeRows), [chequeRows]);
-  const upcomingRowsShown = useMemo(() => upcomingRows.slice(0, 5), [upcomingRows]);
-  const upcomingShownTotal = useMemo(
-    () => upcomingRowsShown.reduce((sum, r) => sum + (Number(r.amount) || 0), 0),
-    [upcomingRowsShown]
+  const upcomingGrandTotal = useMemo(
+    () => upcomingRows.reduce((sum, r) => sum + (Number(r.amount) || 0), 0),
+    [upcomingRows]
   );
 
   const filteredRows = useMemo(() => {
@@ -88,8 +87,7 @@ export default function CashOutPage() {
         <div>
           <h2 className="text-base font-bold text-slate-900">Upcoming conversions</h2>
           <p className="mt-1 text-sm text-slate-500">
-            Total amount to convert on today&apos;s date and future converting dates
-            {upcomingRows.length > 5 ? ` (showing next ${upcomingRowsShown.length} of ${upcomingRows.length} dates)` : '.'}
+            Total amount to convert on today&apos;s date and future converting dates.
           </p>
         </div>
         <div className={scrollTableWrap}>
@@ -107,14 +105,14 @@ export default function CashOutPage() {
                     Loading…
                   </td>
                 </tr>
-              ) : upcomingRowsShown.length === 0 ? (
+              ) : upcomingRows.length === 0 ? (
                 <tr>
                   <td colSpan={2} className="px-4 py-10 text-center text-slate-500">
                     No cheques due for conversion today or in the future.
                   </td>
                 </tr>
               ) : (
-                upcomingRowsShown.map((r) => (
+                upcomingRows.map((r) => (
                   <tr key={r.convertingDate} className="bg-white">
                     <td className="whitespace-nowrap px-4 py-3 tabular-nums font-medium">{r.convertingDate}</td>
                     <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums font-medium">{money(r.amount)}</td>
@@ -122,11 +120,11 @@ export default function CashOutPage() {
                 ))
               )}
             </tbody>
-            {!loading && upcomingRowsShown.length > 0 ? (
+            {!loading && upcomingRows.length > 0 ? (
               <tfoot>
                 <tr className="border-t-2 border-slate-200 bg-indigo-50/60 font-semibold text-indigo-900">
-                  <td className="px-4 py-3">{upcomingRows.length > 5 ? 'Total (shown)' : 'Total'}</td>
-                  <td className="px-4 py-3 text-right tabular-nums">{money(upcomingShownTotal)}</td>
+                  <td className="px-4 py-3">Grand total</td>
+                  <td className="px-4 py-3 text-right tabular-nums">{money(upcomingGrandTotal)}</td>
                 </tr>
               </tfoot>
             ) : null}

@@ -510,7 +510,20 @@ function LedgerDayDetailContent({ row }) {
   );
 }
 
+function daysFromBillDateForRow(row) {
+  if (row?.daysFromBillDate != null && row.daysFromBillDate !== '') return row.daysFromBillDate;
+  const billDate = row?.billDate;
+  if (!billDate || !/^\d{4}-\d{2}-\d{2}$/.test(billDate)) return null;
+  const [y, m, d] = billDate.split('-').map(Number);
+  const bill = new Date(y, m - 1, d);
+  const today = new Date();
+  const todayMid = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  return Math.max(0, Math.round((todayMid - bill) / (24 * 60 * 60 * 1000)));
+}
+
 function OverdueBillDetailContent({ row }) {
+  const daysFromBillDate = daysFromBillDateForRow(row);
+
   return (
     <>
       <SummaryGrid>
@@ -521,6 +534,11 @@ function OverdueBillDetailContent({ row }) {
           label="Days overdue"
           value={row.daysOverdue ?? '—'}
           valueClassName="font-semibold text-rose-700 tabular-nums"
+        />
+        <SummaryField
+          label="Days from bill date"
+          value={daysFromBillDate ?? '—'}
+          valueClassName="tabular-nums"
         />
         <SummaryField label="Bill total" value={formatMoney(row.billTotal)} />
         <SummaryField

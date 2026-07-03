@@ -66,6 +66,7 @@ export default function PromotionsPage() {
   const [editPromotion, setEditPromotion] = useState(null);
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
   const [saveError, setSaveError] = useState(null);
   const [detailRow, setDetailRow] = useState(null);
   const [search, setSearch] = useState('');
@@ -212,6 +213,29 @@ export default function PromotionsPage() {
       setSaveError('Could not reach the server.');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleDelete = async (promo) => {
+    if (!promo?.id) return;
+    const label = promo.customerName ? ` for ${promo.customerName}` : '';
+    if (!window.confirm(`Delete this promotion${label}? Live stock totals will be restored.`)) return;
+    setDeletingId(promo.id);
+    try {
+      const res = await fetch(`${apiBase}/api/promotions/${encodeURIComponent(promo.id)}`, {
+        method: 'DELETE',
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.error || 'Delete failed');
+        return;
+      }
+      setDetailRow(null);
+      await load();
+    } catch {
+      alert('Could not reach the server.');
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -478,13 +502,25 @@ export default function PromotionsPage() {
         variant="promotion"
         onClose={() => setDetailRow(null)}
         actions={
-          <button
-            type="button"
-            onClick={() => openPromotionEdit(detailRow)}
-            className="mt-4 w-full rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2.5 text-sm font-semibold text-indigo-800 ring-1 ring-indigo-100 hover:bg-indigo-100"
-          >
-            Edit promotion
-          </button>
+          detailRow?.id ? (
+            <div className="mt-4 flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => openPromotionEdit(detailRow)}
+                className="w-full rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2.5 text-sm font-semibold text-indigo-800 ring-1 ring-indigo-100 hover:bg-indigo-100"
+              >
+                Edit promotion
+              </button>
+              <button
+                type="button"
+                disabled={deletingId === detailRow.id}
+                onClick={() => handleDelete(detailRow)}
+                className="w-full rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm font-semibold text-rose-800 ring-1 ring-rose-100 hover:bg-rose-100 disabled:opacity-50"
+              >
+                {deletingId === detailRow.id ? 'Deleting…' : 'Delete promotion'}
+              </button>
+            </div>
+          ) : null
         }
       />
     </div>

@@ -1431,6 +1431,31 @@ app.patch('/api/promotions/:id', async (req, res) => {
   }
 });
 
+app.delete('/api/promotions/:id', async (req, res) => {
+  try {
+    const id = String(req.params.id ?? '').trim();
+    if (!id) {
+      return res.status(400).json({ error: 'Promotion id is required' });
+    }
+    const promos = await readPromotions();
+    const idx = promos.findIndex((p) => p.id === id);
+    if (idx < 0) {
+      return res.status(404).json({ error: 'Promotion not found' });
+    }
+    promos.splice(idx, 1);
+    await writePromotions(promos);
+    try {
+      await refreshLiveStockFromSources();
+    } catch (err) {
+      console.error('liveStock refresh after promotion delete', err);
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Failed to delete promotion' });
+  }
+});
+
 app.get('/api/activity', async (req, res) => {
   try {
     const limit = Math.min(50, Math.max(1, parseInt(String(req.query.limit), 10) || 5));

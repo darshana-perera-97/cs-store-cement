@@ -28,7 +28,7 @@ import {
   stickyThead,
   useTablePagination,
 } from './tableToolbar';
-import { downloadOverdueBillsPdf } from './overdueBillsPdf';
+import { downloadOverdueBillsPdf, downloadSalesPersonOverduePdf } from './overdueBillsPdf';
 import RowDetailModal, { detailRowAttrs } from './RowDetailModal';
 
 /** Bar fills aligned with `BRANDS` — same hues as light theme, higher chroma for readability */
@@ -44,9 +44,6 @@ const DONUT_COLORS = ['#a78bfa', '#34d399'];
 
 /** Offer “View all” when there are more overdue bills than this count. */
 const OVERDUE_VIEW_ALL_THRESHOLD = 10;
-
-const overdueSubtitle =
-  'Payment is due within each customer’s bill overdue window (default 14 days after bill date); these credit bills still have a balance after that due date.';
 
 function formatLkrCompact(n) {
   return new Intl.NumberFormat(undefined, {
@@ -429,15 +426,29 @@ export default function AnalyticsPage() {
     downloadOverdueBillsPdf(overdueBills);
   }, [overdueBills]);
 
-  const overdueDownloadButton = (
-    <button
-      type="button"
-      className={downloadPdfButtonClass}
-      disabled={cashDashLoading || overdueBills.length === 0}
-      onClick={handleDownloadOverduePdf}
-    >
-      Download Overdue Bills
-    </button>
+  const handleDownloadSalesPersonPdf = useCallback(() => {
+    downloadSalesPersonOverduePdf(overdueBills);
+  }, [overdueBills]);
+
+  const overdueDownloadButtons = (
+    <div className="flex flex-wrap items-center justify-end gap-2">
+      <button
+        type="button"
+        className={downloadPdfButtonClass}
+        disabled={cashDashLoading || overdueBills.length === 0}
+        onClick={handleDownloadSalesPersonPdf}
+      >
+        Sales Person Download
+      </button>
+      <button
+        type="button"
+        className={downloadPdfButtonClass}
+        disabled={cashDashLoading || overdueBills.length === 0}
+        onClick={handleDownloadOverduePdf}
+      >
+        Download Overdue Bills
+      </button>
+    </div>
   );
 
   if (overdueListView === 'full') {
@@ -456,11 +467,10 @@ export default function AnalyticsPage() {
           </button>
           <h1 className="text-xl font-bold tracking-tight text-slate-900">All overdue bills</h1>
         </div>
-        <p className="text-sm text-slate-600">{overdueSubtitle}</p>
         <Card
           title={`Overdue bills (${overdueBills.length})`}
           subtitle="Full list — same per-customer overdue rules as the dashboard summary."
-          headerExtra={overdueDownloadButton}
+          headerExtra={overdueDownloadButtons}
         >
           <TableFiltersBar
             className="!bg-slate-50/90 shadow-none"
@@ -786,10 +796,9 @@ export default function AnalyticsPage() {
 
       <Card
         title="Overdue bills"
-        subtitle={overdueSubtitle}
         headerExtra={
-          <div className="flex max-w-[min(100%,380px)] flex-wrap items-center justify-end gap-2">
-            {overdueDownloadButton}
+          <div className="flex max-w-[min(100%,520px)] flex-wrap items-center justify-end gap-2">
+            {overdueDownloadButtons}
             {showOverdueViewAll ? (
               <button
                 type="button"

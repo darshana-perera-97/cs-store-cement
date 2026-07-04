@@ -90,6 +90,123 @@ function buildGroupedTableBody(rows) {
   return { body, subtotalRowIndices };
 }
 
+function shopTotalsByName(rows) {
+  const totals = new Map();
+  for (const row of rows) {
+    const shop = String(row.customerName ?? '').trim() || 'Unknown';
+    totals.set(shop, (totals.get(shop) || 0) + (Number(row.outstandingAmount) || 0));
+  }
+  return totals;
+}
+
+function buildSalesPersonTableBody(rows) {
+  const body = [];
+  const shopTotals = shopTotalsByName(rows);
+
+  for (const { shop, bills } of groupRowsByShop(rows)) {
+    const shopTotal = shopTotals.get(shop) || 0;
+    const sortedBills = [...bills].sort((a, b) => {
+      const dueCmp = String(a.dueDate ?? '').localeCompare(String(b.dueDate ?? ''));
+      if (dueCmp !== 0) return dueCmp;
+      return (Number(b.outstandingAmount) || 0) - (Number(a.outstandingAmount) || 0);
+    });
+
+    for (const bill of sortedBills) {
+      body.push([
+        shop,
+        String(bill.dueDate ?? ''),
+        String(bill.daysOverdue ?? 0),
+        formatLkr(bill.outstandingAmount),
+        formatLkr(shopTotal),
+      ]);
+    }
+  }
+
+  return body;
+}
+
+/**
+ * Build an A4 portrait PDF for sales staff — overdue bills with shop totals.
+ * @param {Array<{ customerName: string, dueDate: string, daysOverdue: number, outstandingAmount: number }>} rows
+ */
+export function downloadSalesPersonOverduePdf(rows, options = {}) {
+  const { generatedAt = new Date() } = options;
+  const safeRows = rows || [];
+
+  const doc = new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: 'a4',
+  });
+
+  const margin = 14;
+  const pageW = doc.internal.pageSize.getWidth();
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(16);
+  doc.setTextColor(15, 23, 42);
+  doc.text('Sales person — overdue bills', margin, 16);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9);
+  doc.setTextColor(71, 85, 105);
+  const dateStr = generatedAt.toLocaleString(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  });
+  doc.text(`Generated: ${dateStr}`, margin, 22);
+  doc.setTextColor(0, 0, 0);
+
+  const head = [['Shop name', 'Due date', 'Days overdue', 'Outstanding', 'Total from shop']];
+  const body = buildSalesPersonTableBody(safeRows);
+
+  const grandOutstanding = safeRows.reduce((sum, r) => sum + (Number(r.outstandingAmount) || 0), 0);
+  const foot = [['', '', 'Grand total', formatLkr(grandOutstanding), formatLkr(grandOutstanding)]];
+
+  autoTable(doc, {
+    head,
+    body,
+    foot,
+    startY: 28,
+    margin: { top: 28, left: margin, right: margin, bottom: 16 },
+    styles: { fontSize: 8, cellPadding: 1.8, overflow: 'linebreak', valign: 'top' },
+    headStyles: {
+      fillColor: [71, 85, 105],
+      textColor: 255,
+      fontStyle: 'bold',
+    },
+    footStyles: {
+      fillColor: [226, 232, 240],
+      textColor: [15, 23, 42],
+      fontStyle: 'bold',
+    },
+    alternateRowStyles: { fillColor: [248, 250, 252] },
+    columnStyles: {
+      0: { cellWidth: 42 },
+      1: { cellWidth: 26 },
+      2: { halign: 'right', cellWidth: 22 },
+      3: { halign: 'right', cellWidth: 30 },
+      4: { halign: 'right', cellWidth: 34 },
+    },
+    tableWidth: pageW - margin * 2,
+    showHead: 'everyPage',
+  });
+
+  const pageCount = doc.internal.getNumberOfPages();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    doc.setTextColor(100, 116, 139);
+    doc.text(`Page ${i} of ${pageCount} · A4`, margin, pageHeight - 8);
+    doc.setTextColor(0, 0, 0);
+  }
+
+  const safeDate = generatedAt.toISOString().slice(0, 10);
+  doc.save(`sales-person-overdue-bills-${safeDate}.pdf`);
+}
+
 /**
  * Build an A4 portrait PDF of overdue bills (multi-page when needed).
  * @param {Array<{ customerName: string, billDate: string, details: string, dueDate: string, daysFromBillDate?: number, daysOverdue: number, billTotal: number, outstandingAmount: number }>} rows

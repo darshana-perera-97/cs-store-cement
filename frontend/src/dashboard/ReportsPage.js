@@ -10,6 +10,7 @@ import {
 } from './tableToolbar';
 import { buildChequeTableRows, chequePortion } from './paymentCheques';
 import { downloadCustomerOutstandingReport } from './customerOutstandingExport';
+import { downloadLoadsSummaryPdf } from './loadsSummaryPdf';
 import { downloadReportsPdf } from './reportsPdf';
 import { downloadRefReport } from './reportsRefExport';
 
@@ -36,6 +37,77 @@ function currentMonthValue(d = new Date()) {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
   return `${y}-${m}`;
+}
+
+function monthDisplayLabel(monthValue) {
+  const match = /^(\d{4})-(\d{2})$/.exec(String(monthValue ?? '').trim());
+  if (!match) return monthValue || '—';
+  const year = Number(match[1]);
+  const month = Number(match[2]) - 1;
+  return new Date(year, month, 1).toLocaleString(undefined, { month: 'long', year: 'numeric' });
+}
+
+function daysFromYmdToToday(fromYmd, toYmd = localYmd()) {
+  if (!fromYmd || !toYmd || fromYmd.length < 10 || toYmd.length < 10) return 0;
+  const t0 = new Date(
+    parseInt(fromYmd.slice(0, 4), 10),
+    parseInt(fromYmd.slice(5, 7), 10) - 1,
+    parseInt(fromYmd.slice(8, 10), 10),
+  ).getTime();
+  const t1 = new Date(
+    parseInt(toYmd.slice(0, 4), 10),
+    parseInt(toYmd.slice(5, 7), 10) - 1,
+    parseInt(toYmd.slice(8, 10), 10),
+  ).getTime();
+  return Math.max(0, Math.round((t1 - t0) / (24 * 60 * 60 * 1000)));
+}
+
+function buildShopRowsForRange(bills, payments, customerLocationMap, from, to, brandKey = '') {
+  const map = new Map();
+
+  const ensure = (name) => {
+    const key = String(name ?? '').trim() || '—';
+    if (!map.has(key)) {
+      const location = customerLocationMap.get(key.toLowerCase()) || '';
+      map.set(key, {
+        shop: key,
+        location,
+        tokyoBags: 0,
+        samudraBags: 0,
+        atlasBags: 0,
+        nipponBags: 0,
+        totalBags: 0,
+        creditSales: 0,
+        billCount: 0,
+        cashIn: 0,
+        paymentCount: 0,
+      });
+    }
+    return map.get(key);
+  };
+
+  for (const b of bills) {
+    if (!inDateRange(b.date, from, to)) continue;
+    if (!recordHasBrandBags(b, brandKey)) continue;
+    const row = ensure(b.customerName);
+    const { byBrand, total } = bagsFromRecord(b, brandKey);
+    row.tokyoBags += byBrand.tokyo || 0;
+    row.samudraBags += byBrand.samudra || 0;
+    row.atlasBags += byBrand.atlas || 0;
+    row.nipponBags += byBrand.nippon || 0;
+    row.totalBags += total;
+    row.creditSales += brandLineFromBill(b, brandKey);
+    row.billCount += 1;
+  }
+
+  for (const p of payments) {
+    if (!inDateRange(p.date, from, to)) continue;
+    const row = ensure(p.customerName);
+    row.cashIn += paymentTotal(p);
+    row.paymentCount += 1;
+  }
+
+  return [...map.values()].sort((a, b) => a.shop.localeCompare(b.shop));
 }
 
 /** ISO calendar week (Mon–Sun) from `<input type="week">` value e.g. `2026-W22`. */
@@ -213,6 +285,7 @@ export default function ReportsPage() {
   const [appliedFrom, setAppliedFrom] = useState(() => weeklyRangeFromWeekValue(currentIsoWeekValue()).from);
   const [appliedTo, setAppliedTo] = useState(() => weeklyRangeFromWeekValue(currentIsoWeekValue()).to);
   const [brandFilter, setBrandFilter] = useState('');
+  const [loadsSummaryMonth, setLoadsSummaryMonth] = useState(() => currentMonthValue());
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -314,53 +387,160 @@ export default function ReportsPage() {
     return { byBrand, total, loadCount: filtered.length };
   }, [loads, appliedFrom, appliedTo, brandFilter]);
 
-  const shopRows = useMemo(() => {
-    const map = new Map();
+  const shopRows = useMemo(
+    () =>
+      buildShopRowsForRange(
+        bills,
+        payments,
+        customerLocationMap,
+        appliedFrom,
+        appliedTo,
+        brandFilter,
+      ),
+    [bills, payments, appliedFrom, appliedTo, customerLocationMap, brandFilter],
+  );
 
-    const ensure = (name) => {
-      const key = String(name ?? '').trim() || '—';
-      if (!map.has(key)) {
-        const location = customerLocationMap.get(key.toLowerCase()) || '';
-        map.set(key, {
-          shop: key,
-          location,
-          tokyoBags: 0,
-          samudraBags: 0,
-          atlasBags: 0,
-          nipponBags: 0,
-          totalBags: 0,
-          creditSales: 0,
-          billCount: 0,
-          cashIn: 0,
-          paymentCount: 0,
+  const loadsSummaryRange = useMemo(
+    () => monthlyRangeFromMonthValue(loadsSummaryMonth),
+    [loadsSummaryMonth],
+  );
+
+  const loadsSummaryMonthLabel = useMemo(
+    () => monthDisplayLabel(loadsSummaryMonth),
+    [loadsSummaryMonth],
+  );
+
+  const monthLoadsReport = useMemo(() => {
+    const { from, to } = loadsSummaryRange;
+    const filtered = loads.filter((r) => inDateRange(r.date, from, to));
+    const byBrand = Object.fromEntries(BRANDS.map((b) => [b.key, 0]));
+    let total = 0;
+    let totalAmount = 0;
+    for (const r of filtered) {
+      const { byBrand: row, total: rowTotal } = bagsFromRecord(r, '');
+      for (const b of BRANDS) byBrand[b.key] += row[b.key] || 0;
+      total += rowTotal;
+      totalAmount += Number(r.totalAmount) || 0;
+    }
+    return { byBrand, total, loadCount: filtered.length, totalAmount };
+  }, [loads, loadsSummaryRange]);
+
+  const monthLoadRows = useMemo(() => {
+    const { from, to } = loadsSummaryRange;
+    return loads
+      .filter((r) => inDateRange(r.date, from, to))
+      .map((r) => ({
+        date: String(r.date ?? '').slice(0, 10),
+        stockId: String(r.stockId ?? '').trim(),
+        vehicleNumber: String(r.vehicleNumber ?? '').trim(),
+        tokyoBags: Number(r.tokyoBags) || 0,
+        samudraBags: Number(r.samudraBags) || 0,
+        atlasBags: Number(r.atlasBags) || 0,
+        nipponBags: Number(r.nipponBags) || 0,
+        totalAmount: Number(r.totalAmount) || 0,
+      }))
+      .sort((a, b) => a.date.localeCompare(b.date) || a.stockId.localeCompare(b.stockId));
+  }, [loads, loadsSummaryRange]);
+
+  const monthShopRows = useMemo(
+    () =>
+      buildShopRowsForRange(
+        bills,
+        payments,
+        customerLocationMap,
+        loadsSummaryRange.from,
+        loadsSummaryRange.to,
+        '',
+      ),
+    [bills, payments, customerLocationMap, loadsSummaryRange],
+  );
+
+  const monthShopTotals = useMemo(
+    () =>
+      monthShopRows.reduce(
+        (acc, r) => ({
+          totalBags: acc.totalBags + r.totalBags,
+          creditSales: acc.creditSales + r.creditSales,
+          cashIn: acc.cashIn + r.cashIn,
+        }),
+        { totalBags: 0, creditSales: 0, cashIn: 0 },
+      ),
+    [monthShopRows],
+  );
+
+  const shopOutstandingByName = useMemo(() => {
+    const map = new Map();
+    for (const c of customers) {
+      const name = String(c.name ?? '').trim();
+      if (!name) continue;
+      map.set(name.toLowerCase(), Math.max(0, Number(c.remainingAmount) || 0));
+      map.set(name, Math.max(0, Number(c.remainingAmount) || 0));
+    }
+    return map;
+  }, [customers]);
+
+  const outstandingForShop = useCallback(
+    (shop) => {
+      const key = String(shop ?? '').trim();
+      if (!key) return 0;
+      if (shopOutstandingByName.has(key)) return shopOutstandingByName.get(key);
+      return shopOutstandingByName.get(key.toLowerCase()) ?? 0;
+    },
+    [shopOutstandingByName],
+  );
+
+  const monthInvoiceRows = useMemo(() => {
+    const { from, to } = loadsSummaryRange;
+    const asOf = localYmd();
+    const rows = [];
+    for (const b of bills) {
+      if (!inDateRange(b.date, from, to)) continue;
+      const shop = String(b.customerName ?? '').trim() || '—';
+      const invoiceDate = String(b.date ?? '').slice(0, 10);
+      rows.push({
+        shop,
+        invoiceDate,
+        daysFromBillDate: daysFromYmdToToday(invoiceDate, asOf),
+        amount: Number(b.totalAmount) || 0,
+      });
+    }
+    rows.sort((a, b) => {
+      const shopCmp = a.shop.localeCompare(b.shop);
+      if (shopCmp !== 0) return shopCmp;
+      return a.invoiceDate.localeCompare(b.invoiceDate);
+    });
+    return rows;
+  }, [bills, loadsSummaryRange]);
+
+  const monthInvoiceGroups = useMemo(() => {
+    const groups = new Map();
+    for (const row of monthInvoiceRows) {
+      if (!groups.has(row.shop)) {
+        groups.set(row.shop, {
+          shop: row.shop,
+          invoices: [],
+          totalAmount: 0,
+          outstanding: outstandingForShop(row.shop),
         });
       }
-      return map.get(key);
-    };
-
-    for (const b of bills) {
-      if (!inDateRange(b.date, appliedFrom, appliedTo)) continue;
-      if (!recordHasBrandBags(b, brandFilter)) continue;
-      const row = ensure(b.customerName);
-      const { byBrand, total } = bagsFromRecord(b, brandFilter);
-      row.tokyoBags += byBrand.tokyo || 0;
-      row.samudraBags += byBrand.samudra || 0;
-      row.atlasBags += byBrand.atlas || 0;
-      row.nipponBags += byBrand.nippon || 0;
-      row.totalBags += total;
-      row.creditSales += brandLineFromBill(b, brandFilter);
-      row.billCount += 1;
+      const g = groups.get(row.shop);
+      g.invoices.push(row);
+      g.totalAmount += row.amount;
     }
+    return [...groups.values()].sort((a, b) => a.shop.localeCompare(b.shop));
+  }, [monthInvoiceRows, outstandingForShop]);
 
-    for (const p of payments) {
-      if (!inDateRange(p.date, appliedFrom, appliedTo)) continue;
-      const row = ensure(p.customerName);
-      row.cashIn += paymentTotal(p);
-      row.paymentCount += 1;
-    }
-
-    return [...map.values()].sort((a, b) => a.shop.localeCompare(b.shop));
-  }, [bills, payments, appliedFrom, appliedTo, customerLocationMap, brandFilter]);
+  const monthInvoiceGrandTotals = useMemo(
+    () =>
+      monthInvoiceGroups.reduce(
+        (acc, g) => ({
+          totalAmount: acc.totalAmount + g.totalAmount,
+          outstanding: acc.outstanding + g.outstanding,
+        }),
+        { totalAmount: 0, outstanding: 0 },
+      ),
+    [monthInvoiceGroups],
+  );
 
   const visibleBrands = useMemo(
     () => (activeBrand ? [activeBrand] : BRANDS),
@@ -536,15 +716,167 @@ export default function ReportsPage() {
     downloadCustomerOutstandingReport(customers, { asOfDate: todayYmd });
   }, [customers, todayYmd]);
 
+  const handleDownloadLoadsSummary = useCallback(() => {
+    downloadLoadsSummaryPdf(
+      {
+        monthLabel: loadsSummaryMonthLabel,
+        loadsReport: monthLoadsReport,
+        loadRows: monthLoadRows,
+        invoiceRows: monthInvoiceRows,
+        shopOutstandingByName,
+      },
+      { monthSlug: loadsSummaryMonth },
+    );
+  }, [
+    loadsSummaryMonth,
+    loadsSummaryMonthLabel,
+    monthLoadsReport,
+    monthLoadRows,
+    monthInvoiceRows,
+    shopOutstandingByName,
+  ]);
+
   return (
     <div className="space-y-5">
       <div className="rounded-[20px] bg-white p-5 shadow-lg shadow-slate-200/40 ring-1 ring-slate-100 sm:p-6">
         <h1 className="text-lg font-bold text-slate-900">Reports</h1>
         <p className="mt-1 text-sm text-slate-500">
-          Download today&apos;s customer outstanding balances, or generate weekly, monthly, and custom-period
-          reports for cement bags, credit sales, bank deposits, and pending cheques.
+          Download today&apos;s customer outstanding balances, a monthly loads summary with per-shop sales and cash
+          in, or generate weekly, monthly, and custom-period reports for cement bags, credit sales, bank deposits,
+          and pending cheques.
         </p>
       </div>
+
+      <Card
+        title="Total loads summary"
+        subtitle={`Bags brought in during ${loadsSummaryMonthLabel} — credit invoices that month with days from bill date, outstanding | total per shop`}
+      >
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="block min-w-[160px] text-sm font-medium text-slate-600">
+            Month
+            <input
+              type="month"
+              value={loadsSummaryMonth}
+              onChange={(e) => setLoadsSummaryMonth(e.target.value || currentMonthValue())}
+              className={filterControl}
+            />
+          </label>
+          <button
+            type="button"
+            onClick={handleDownloadLoadsSummary}
+            disabled={loading || !!error}
+            className="rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Download loads summary (PDF)
+          </button>
+        </div>
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="rounded-xl bg-slate-800 p-4 text-white shadow-md ring-1 ring-slate-700 sm:col-span-2 lg:col-span-1">
+            <p className="text-xs font-semibold uppercase tracking-wide text-white/85">Bags from loads</p>
+            <p className="mt-1 text-2xl font-bold tabular-nums">{monthLoadsReport.total.toLocaleString()}</p>
+            <p className="mt-0.5 text-xs text-white/75">
+              {monthLoadsReport.loadCount} load{monthLoadsReport.loadCount === 1 ? '' : 's'}
+            </p>
+          </div>
+          <div className="rounded-xl bg-amber-50 p-4 ring-1 ring-amber-100">
+            <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">Load purchase total</p>
+            <p className="mt-1 text-xl font-bold tabular-nums text-amber-900">{money(monthLoadsReport.totalAmount)}</p>
+          </div>
+          <div className="rounded-xl bg-sky-50 p-4 ring-1 ring-sky-100">
+            <p className="text-xs font-semibold uppercase tracking-wide text-sky-700">Bags sold</p>
+            <p className="mt-1 text-xl font-bold tabular-nums text-sky-900">
+              {monthShopTotals.totalBags.toLocaleString()}
+            </p>
+          </div>
+          <div className="rounded-xl bg-violet-50 p-4 ring-1 ring-violet-100">
+            <p className="text-xs font-semibold uppercase tracking-wide text-violet-700">Invoice total</p>
+            <p className="mt-1 text-xl font-bold tabular-nums text-violet-900">
+              {money(monthInvoiceGrandTotals.totalAmount)}
+            </p>
+          </div>
+          <div className="rounded-xl bg-rose-50 p-4 ring-1 ring-rose-100">
+            <p className="text-xs font-semibold uppercase tracking-wide text-rose-700">Outstanding (shops)</p>
+            <p className="mt-1 text-xl font-bold tabular-nums text-rose-900">
+              {money(monthInvoiceGrandTotals.outstanding)}
+            </p>
+          </div>
+        </div>
+
+        <div className={`mt-5 ${scrollTableWrap}`}>
+          <table className="w-full min-w-[640px] border-separate border-spacing-0 text-left text-sm">
+            <thead className={stickyThead}>
+              <tr className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <th className="whitespace-nowrap px-4 py-3">Shop name</th>
+                <th className="whitespace-nowrap px-4 py-3">Invoice date</th>
+                <th className="whitespace-nowrap px-4 py-3 text-right">Days from bill date</th>
+                <th className="whitespace-nowrap px-4 py-3 text-right">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td colSpan={4} className="px-4 py-8 text-center text-slate-500">
+                    Loading…
+                  </td>
+                </tr>
+              ) : monthInvoiceGroups.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="px-4 py-8 text-center text-slate-500">
+                    No credit invoices in {loadsSummaryMonthLabel}.
+                  </td>
+                </tr>
+              ) : (
+                monthInvoiceGroups.flatMap((g) => [
+                  ...g.invoices.map((inv, idx) => (
+                    <tr
+                      key={`${g.shop}-${inv.invoiceDate}-${idx}`}
+                      className="border-t border-slate-100 hover:bg-slate-50/80"
+                    >
+                      <td className="whitespace-nowrap px-4 py-3 font-medium text-slate-900">{inv.shop}</td>
+                      <td className="whitespace-nowrap px-4 py-3 tabular-nums text-slate-600">
+                        {inv.invoiceDate}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-slate-600">
+                        {inv.daysFromBillDate}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-right font-semibold tabular-nums text-slate-900">
+                        {money(inv.amount)}
+                      </td>
+                    </tr>
+                  )),
+                  <tr
+                    key={`${g.shop}-subtotal`}
+                    className="border-t border-slate-200 bg-slate-50/90 font-semibold text-slate-900"
+                  >
+                    <td className="px-4 py-3">{g.shop}</td>
+                    <td className="px-4 py-3 text-slate-600" colSpan={2}>
+                      Outstanding | Total
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-indigo-800">
+                      {money(g.outstanding)} | {money(g.totalAmount)}
+                    </td>
+                  </tr>,
+                ])
+              )}
+            </tbody>
+            {!loading && monthInvoiceGroups.length > 0 ? (
+              <tfoot>
+                <tr className="border-t-2 border-slate-200 bg-indigo-50/60 font-semibold text-slate-900">
+                  <td className="px-4 py-3">Grand total</td>
+                  <td className="px-4 py-3 text-slate-600" colSpan={2}>
+                    Outstanding | Total
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-indigo-900">
+                    {money(monthInvoiceGrandTotals.outstanding)} |{' '}
+                    {money(monthInvoiceGrandTotals.totalAmount)}
+                  </td>
+                </tr>
+              </tfoot>
+            ) : null}
+          </table>
+        </div>
+      </Card>
 
       <Card
         title="Customer outstanding (today)"

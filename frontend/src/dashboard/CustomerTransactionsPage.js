@@ -103,6 +103,14 @@ function txKindMeta(kind) {
   }
 }
 
+function compareTransactionsByDateDesc(a, b) {
+  const dateCmp = String(b.date || '').localeCompare(String(a.date || ''));
+  if (dateCmp !== 0) return dateCmp;
+  const aSort = a.sortAt || `${a.date || ''}T12:00:00`;
+  const bSort = b.sortAt || `${b.date || ''}T12:00:00`;
+  return new Date(bSort).getTime() - new Date(aSort).getTime();
+}
+
 function summarizeTransactions(transactions) {
   let totalCharged = 0;
   let totalPaid = 0;
@@ -274,10 +282,12 @@ export default function CustomerTransactionsPage() {
   const allPaid = amountToPay === 0 && overpayment === 0;
 
   const filteredTransactions = useMemo(() => {
-    return transactions.filter((tx) => {
-      if (kindFilter !== 'all' && tx.kind !== kindFilter) return false;
-      return rowMatchesQuery(search, [tx.date, tx.type, tx.details, String(tx.amount)]);
-    });
+    return transactions
+      .filter((tx) => {
+        if (kindFilter !== 'all' && tx.kind !== kindFilter) return false;
+        return rowMatchesQuery(search, [tx.date, tx.type, tx.details, String(tx.amount)]);
+      })
+      .sort(compareTransactionsByDateDesc);
   }, [transactions, search, kindFilter]);
 
   const pagination = useTablePagination(filteredTransactions.length, [customerId, search, kindFilter]);

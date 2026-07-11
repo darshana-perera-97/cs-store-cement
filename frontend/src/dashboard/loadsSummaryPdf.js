@@ -160,6 +160,7 @@ function groupInvoiceRowsByShop(invoiceRows) {
       ),
     }))
     .sort((a, b) => a.shop.localeCompare(b.shop));
+    
 }
 
 /**

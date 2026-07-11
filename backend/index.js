@@ -329,10 +329,24 @@ function billDetailsLine(bill) {
   return amt > 0 ? `Total LKR ${amt}` : 'Credit bill';
 }
 
-/** Overdue credit bills (same rules as `/api/overdue-bills`). */
-function collectOverdueBillRows(customers, bills, payments, overdueDates = {}) {
+/**
+ * Unpaid credit bills (remaining > 0 after payments). Payments apply to `pastBill` first,
+ * then bills in chronological order (same idea as balances).
+ * @param {{ overdueOnly?: boolean }} [options]
+ */
+function collectUnpaidBillRows(customers, bills, payments, overdueDates = {}, options = {}) {
+  const { overdueOnly = false } = options;
   const todayYmd = ymdTodayLocal();
-  const overdue = [];
+  const rows = [];
+
+  const pushIfMatch = (row) => {
+    const isOverdue = Boolean(row.dueDate && todayYmd > row.dueDate);
+    if (overdueOnly && !isOverdue) return;
+    rows.push({
+      ...row,
+      daysOverdue: isOverdue ? daysFromDueToToday(row.dueDate, todayYmd) : 0,
+    });
+  };
 
   for (const cust of customers) {
     const settlementDays = getOverdueDaysForCustomer(overdueDates, cust.id);
@@ -358,14 +372,13 @@ function collectOverdueBillRows(customers, bills, payments, overdueDates = {}) {
       remainingCredit -= paidTowardBill;
       const remaining = Math.round((total - paidTowardBill) * 100) / 100;
       const due = addDaysToYmd(bill.date, settlementDays);
-      if (remaining > 0 && due && todayYmd > due) {
-        overdue.push({
+      if (remaining > 0) {
+        pushIfMatch({
           id: bill.id,
           customerName: cust.name,
           billDate: bill.date,
           dueDate: due,
           daysFromBillDate: daysFromDueToToday(bill.date, todayYmd),
-          daysOverdue: daysFromDueToToday(due, todayYmd),
           outstandingAmount: remaining,
           billTotal: total,
           details: billDetailsLine(bill),
@@ -401,15 +414,14 @@ function collectOverdueBillRows(customers, bills, payments, overdueDates = {}) {
       remainingCredit -= paidTowardBill;
       const remaining = Math.round((total - paidTowardBill) * 100) / 100;
       const due = addDaysToYmd(bill.date, BILL_SETTLEMENT_DAYS);
-      if (remaining > 0 && due && todayYmd > due) {
+      if (remaining > 0) {
         const name = String(bill.customerName ?? '').trim() || 'Unknown';
-        overdue.push({
+        pushIfMatch({
           id: bill.id,
           customerName: name,
           billDate: bill.date,
           dueDate: due,
           daysFromBillDate: daysFromDueToToday(bill.date, todayYmd),
-          daysOverdue: daysFromDueToToday(due, todayYmd),
           outstandingAmount: remaining,
           billTotal: total,
           details: billDetailsLine(bill),
@@ -418,11 +430,29 @@ function collectOverdueBillRows(customers, bills, payments, overdueDates = {}) {
     }
   }
 
-  overdue.sort((a, b) => {
-    if (a.dueDate !== b.dueDate) return a.dueDate.localeCompare(b.dueDate);
-    return b.outstandingAmount - a.outstandingAmount;
+  rows.sort((a, b) => {
+    const shopCmp = String(a.customerName ?? '').localeCompare(String(b.customerName ?? ''));
+    if (shopCmp !== 0) return shopCmp;
+    const dateCmp = String(a.billDate ?? '').localeCompare(String(b.billDate ?? ''));
+    if (dateCmp !== 0) return dateCmp;
+    return (Number(b.outstandingAmount) || 0) - (Number(a.outstandingAmount) || 0);
   });
-  return overdue;
+  return rows;
+}
+
+/** Overdue credit bills (same rules as `/api/overdue-bills`). */
+function collectOverdueBillRows(customers, bills, payments, overdueDates = {}) {
+  return collectUnpaidBillRows(customers, bills, payments, overdueDates, { overdueOnly: true }).sort(
+    (a, b) => {
+      if (a.dueDate !== b.dueDate) return a.dueDate.localeCompare(b.dueDate);
+      return b.outstandingAmount - a.outstandingAmount;
+    },
+  );
+}
+
+/** All unpaid credit bills (pending), including those not yet overdue. */
+function collectPendingBillRows(customers, bills, payments, overdueDates = {}) {
+  return collectUnpaidBillRows(customers, bills, payments, overdueDates, { overdueOnly: false });
 }
 
 /** Longest days past due → UI priority tier (green → red). */
@@ -561,6 +591,25 @@ app.get('/api/overdue-bills', async (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'Failed to load overdue bills' });
+  }
+});
+
+/**
+ * All unpaid credit bills (pending), including bills not yet past the settlement window.
+ * Same payment allocation as `/api/overdue-bills`.
+ */
+app.get('/api/pending-bills', async (req, res) => {
+  try {
+    const [customers, bills, payments, overdueDates] = await Promise.all([
+      readCustomers(),
+      readBills(),
+      readPayments(),
+      readOverdueDates(),
+    ]);
+    res.json(collectPendingBillRows(customers, bills, payments, overdueDates));
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Failed to load pending bills' });
   }
 });
 
@@ -745,7 +794,11 @@ app.get('/api/customers/:id/transactions', async (req, res) => {
       });
     }
 
-    transactions.sort((a, b) => new Date(b.sortAt).getTime() - new Date(a.sortAt).getTime());
+    transactions.sort((a, b) => {
+      const dateCmp = String(b.date || '').localeCompare(String(a.date || ''));
+      if (dateCmp !== 0) return dateCmp;
+      return new Date(b.sortAt).getTime() - new Date(a.sortAt).getTime();
+    });
 
     res.json({
       customer: enrichCustomerBalance(cust, bills, payments, overdueDates),

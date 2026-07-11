@@ -90,44 +90,58 @@ function buildGroupedTableBody(rows) {
   return { body, subtotalRowIndices };
 }
 
-function shopTotalsByName(rows) {
-  const totals = new Map();
-  for (const row of rows) {
-    const shop = String(row.customerName ?? '').trim() || 'Unknown';
-    totals.set(shop, (totals.get(shop) || 0) + (Number(row.outstandingAmount) || 0));
-  }
-  return totals;
+function isBillOverdue(bill) {
+  return (Number(bill?.daysOverdue) || 0) > 0;
 }
 
+/**
+ * Pending bills grouped by shop. Columns: shop, bill date, days from bill date, amount.
+ * After each shop: overdue amount | total amount to be paid.
+ */
 function buildSalesPersonTableBody(rows) {
   const body = [];
-  const shopTotals = shopTotalsByName(rows);
+  const subtotalRowIndices = new Set();
+  let grandOverdue = 0;
+  let grandTotal = 0;
 
   for (const { shop, bills } of groupRowsByShop(rows)) {
-    const shopTotal = shopTotals.get(shop) || 0;
     const sortedBills = [...bills].sort((a, b) => {
-      const dueCmp = String(a.dueDate ?? '').localeCompare(String(b.dueDate ?? ''));
-      if (dueCmp !== 0) return dueCmp;
+      const dateCmp = String(a.billDate ?? '').localeCompare(String(b.billDate ?? ''));
+      if (dateCmp !== 0) return dateCmp;
       return (Number(b.outstandingAmount) || 0) - (Number(a.outstandingAmount) || 0);
     });
 
     for (const bill of sortedBills) {
       body.push([
         shop,
-        String(bill.dueDate ?? ''),
-        String(bill.daysOverdue ?? 0),
+        String(bill.billDate ?? ''),
+        String(daysFromBillDateForRow(bill)),
         formatLkr(bill.outstandingAmount),
-        formatLkr(shopTotal),
       ]);
     }
+
+    const shopTotal = sortedBills.reduce((sum, r) => sum + (Number(r.outstandingAmount) || 0), 0);
+    const shopOverdue = sortedBills
+      .filter(isBillOverdue)
+      .reduce((sum, r) => sum + (Number(r.outstandingAmount) || 0), 0);
+    grandTotal += shopTotal;
+    grandOverdue += shopOverdue;
+
+    subtotalRowIndices.add(body.length);
+    body.push([
+      shop,
+      'Overdue | Total to pay',
+      '',
+      `${formatLkr(shopOverdue)} | ${formatLkr(shopTotal)}`,
+    ]);
   }
 
-  return body;
+  return { body, subtotalRowIndices, grandOverdue, grandTotal };
 }
 
 /**
- * Build an A4 portrait PDF for sales staff — overdue bills with shop totals.
- * @param {Array<{ customerName: string, dueDate: string, daysOverdue: number, outstandingAmount: number }>} rows
+ * Build an A4 portrait PDF for sales staff — all pending bills per shop.
+ * @param {Array<{ customerName: string, billDate: string, daysFromBillDate?: number, daysOverdue?: number, outstandingAmount: number }>} rows
  */
 export function downloadSalesPersonOverduePdf(rows, options = {}) {
   const { generatedAt = new Date() } = options;
@@ -141,11 +155,12 @@ export function downloadSalesPersonOverduePdf(rows, options = {}) {
 
   const margin = 14;
   const pageW = doc.internal.pageSize.getWidth();
+  const tableW = pageW - margin * 2;
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(16);
   doc.setTextColor(15, 23, 42);
-  doc.text('Sales person — overdue bills', margin, 16);
+  doc.text('Sales person — pending bills', margin, 16);
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
@@ -155,20 +170,35 @@ export function downloadSalesPersonOverduePdf(rows, options = {}) {
     timeStyle: 'short',
   });
   doc.text(`Generated: ${dateStr}`, margin, 22);
+  doc.text(
+    'All unpaid credit bills by shop. After each shop: overdue amount | total amount to be paid.',
+    margin,
+    27,
+  );
   doc.setTextColor(0, 0, 0);
 
-  const head = [['Shop name', 'Due date', 'Days overdue', 'Outstanding', 'Total from shop']];
-  const body = buildSalesPersonTableBody(safeRows);
+  const head = [['Shop name', 'Bill date', 'Days from bill date', 'Amount']];
+  const { body, subtotalRowIndices, grandOverdue, grandTotal } = buildSalesPersonTableBody(safeRows);
+  const tableBody = body.length === 0 ? [['—', '—', '0', formatLkr(0)]] : body;
 
-  const grandOutstanding = safeRows.reduce((sum, r) => sum + (Number(r.outstandingAmount) || 0), 0);
-  const foot = [['', '', 'Grand total', formatLkr(grandOutstanding), formatLkr(grandOutstanding)]];
+  const foot =
+    body.length === 0
+      ? null
+      : [
+          [
+            'Grand total',
+            'Overdue | Total to pay',
+            '',
+            `${formatLkr(grandOverdue)} | ${formatLkr(grandTotal)}`,
+          ],
+        ];
 
   autoTable(doc, {
     head,
-    body,
+    body: tableBody,
     foot,
-    startY: 28,
-    margin: { top: 28, left: margin, right: margin, bottom: 16 },
+    startY: 32,
+    margin: { top: 32, left: margin, right: margin, bottom: 16 },
     styles: { fontSize: 8, cellPadding: 1.8, overflow: 'linebreak', valign: 'top' },
     headStyles: {
       fillColor: [71, 85, 105],
@@ -183,13 +213,21 @@ export function downloadSalesPersonOverduePdf(rows, options = {}) {
     alternateRowStyles: { fillColor: [248, 250, 252] },
     columnStyles: {
       0: { cellWidth: 42 },
-      1: { cellWidth: 26 },
-      2: { halign: 'right', cellWidth: 22 },
-      3: { halign: 'right', cellWidth: 30 },
-      4: { halign: 'right', cellWidth: 34 },
+      1: { cellWidth: 28 },
+      2: { halign: 'right', cellWidth: 32 },
+      3: { halign: 'right', cellWidth: tableW - 42 - 28 - 32 },
     },
-    tableWidth: pageW - margin * 2,
+    tableWidth: tableW,
     showHead: 'everyPage',
+    didParseCell(data) {
+      if (data.section !== 'body' || !subtotalRowIndices.has(data.row.index)) return;
+      data.cell.styles.fontStyle = 'bold';
+      data.cell.styles.fillColor = [241, 245, 249];
+      data.cell.styles.textColor = [15, 23, 42];
+      if (data.column.index === 3) {
+        data.cell.styles.textColor = [190, 18, 60];
+      }
+    },
   });
 
   const pageCount = doc.internal.getNumberOfPages();
@@ -204,7 +242,7 @@ export function downloadSalesPersonOverduePdf(rows, options = {}) {
   }
 
   const safeDate = generatedAt.toISOString().slice(0, 10);
-  doc.save(`sales-person-overdue-bills-${safeDate}.pdf`);
+  doc.save(`sales-person-pending-bills-${safeDate}.pdf`);
 }
 
 /**

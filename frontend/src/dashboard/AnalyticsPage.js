@@ -29,6 +29,7 @@ import {
   useTablePagination,
 } from './tableToolbar';
 import { downloadOverdueBillsPdf, downloadSalesPersonOverduePdf } from './overdueBillsPdf';
+import { buildPendingBillRows } from './pendingBills';
 import RowDetailModal, { detailRowAttrs } from './RowDetailModal';
 
 /** Bar fills aligned with `BRANDS` — same hues as light theme, higher chroma for readability */
@@ -214,6 +215,7 @@ export default function AnalyticsPage() {
   const [bagSalesByDay, setBagSalesByDay] = useState([]);
   const [recentTransfers, setRecentTransfers] = useState([]);
   const [overdueBills, setOverdueBills] = useState([]);
+  const [pendingBills, setPendingBills] = useState([]);
   const [cashDashLoading, setCashDashLoading] = useState(true);
   const [chequeDepositQueue, setChequeDepositQueue] = useState({
     asOfDate: '',
@@ -287,14 +289,18 @@ export default function AnalyticsPage() {
     let cancelled = false;
     (async () => {
       try {
-        const [sumRes, flowRes, bagsRes, xferRes, overdueRes, chequeRes] = await Promise.all([
-          fetch(`${apiRoot}/api/cash-summary`),
-          fetch(`${apiRoot}/api/cash-flow?days=7`),
-          fetch(`${apiRoot}/api/bag-sales-by-day?days=7`),
-          fetch(`${apiRoot}/api/recent-transfers?limit=5`),
-          fetch(`${apiRoot}/api/overdue-bills`),
-          fetch(`${apiRoot}/api/cheque-deposit-queue?days=3`),
-        ]);
+        const [sumRes, flowRes, bagsRes, xferRes, overdueRes, custRes, billsRes, payRes, chequeRes] =
+          await Promise.all([
+            fetch(`${apiRoot}/api/cash-summary`),
+            fetch(`${apiRoot}/api/cash-flow?days=7`),
+            fetch(`${apiRoot}/api/bag-sales-by-day?days=7`),
+            fetch(`${apiRoot}/api/recent-transfers?limit=5`),
+            fetch(`${apiRoot}/api/overdue-bills`),
+            fetch(`${apiRoot}/api/customers`),
+            fetch(`${apiRoot}/api/bills`),
+            fetch(`${apiRoot}/api/payments`),
+            fetch(`${apiRoot}/api/cheque-deposit-queue?days=3`),
+          ]);
         if (!cancelled) {
           if (sumRes.ok) setCashSummary(await sumRes.json());
           else setCashSummary(null);
@@ -322,6 +328,17 @@ export default function AnalyticsPage() {
           } else {
             setOverdueBills([]);
           }
+          // Build pending bills client-side (works without /api/pending-bills on remote).
+          const customers = custRes.ok ? await custRes.json() : [];
+          const bills = billsRes.ok ? await billsRes.json() : [];
+          const payments = payRes.ok ? await payRes.json() : [];
+          setPendingBills(
+            buildPendingBillRows(
+              Array.isArray(customers) ? customers : [],
+              Array.isArray(bills) ? bills : [],
+              Array.isArray(payments) ? payments : [],
+            ).map(enrichOverdueBillRow),
+          );
           if (chequeRes.ok) {
             const cd = await chequeRes.json();
             setChequeDepositErr(null);
@@ -343,6 +360,7 @@ export default function AnalyticsPage() {
           setBagSalesByDay([]);
           setRecentTransfers([]);
           setOverdueBills([]);
+          setPendingBills([]);
           setChequeDepositQueue({ asOfDate: '', throughDate: '', items: [] });
           setChequeDepositErr('Could not load dashboard data');
         }
@@ -427,15 +445,15 @@ export default function AnalyticsPage() {
   }, [overdueBills]);
 
   const handleDownloadSalesPersonPdf = useCallback(() => {
-    downloadSalesPersonOverduePdf(overdueBills);
-  }, [overdueBills]);
+    downloadSalesPersonOverduePdf(pendingBills);
+  }, [pendingBills]);
 
   const overdueDownloadButtons = (
     <div className="flex flex-wrap items-center justify-end gap-2">
       <button
         type="button"
         className={downloadPdfButtonClass}
-        disabled={cashDashLoading || overdueBills.length === 0}
+        disabled={cashDashLoading || pendingBills.length === 0}
         onClick={handleDownloadSalesPersonPdf}
       >
         Sales Person Download

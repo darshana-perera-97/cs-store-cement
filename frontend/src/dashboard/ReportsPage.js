@@ -11,8 +11,10 @@ import {
 import { buildChequeTableRows, chequePortion } from './paymentCheques';
 import { downloadCustomerOutstandingReport } from './customerOutstandingExport';
 import { downloadLoadsSummaryPdf } from './loadsSummaryPdf';
+import { downloadMonthlyBillsPdf } from './monthlyBillsPdf';
 import { downloadReportsPdf } from './reportsPdf';
 import { downloadRefReport } from './reportsRefExport';
+import { downloadStockDistributionPdf } from './stockDistributionPdf';
 
 const apiBase = getApiBase();
 
@@ -60,6 +62,135 @@ function daysFromYmdToToday(fromYmd, toYmd = localYmd()) {
     parseInt(toYmd.slice(8, 10), 10),
   ).getTime();
   return Math.max(0, Math.round((t1 - t0) / (24 * 60 * 60 * 1000)));
+}
+
+function normalizeCustomerName(s) {
+  return String(s ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+}
+
+/**
+ * Map bill id → settled date (YYYY-MM-DD) when fully paid.
+ * Same FIFO rules as pending/overdue: payments clear pastBill first, then oldest bills.
+ */
+function buildBillSettledDateLookup(customers, bills, payments) {
+  const settledByBillId = new Map();
+
+  const applyPayments = (custBills, custPayments, pastBillAmount) => {
+    const slots = [...custBills].sort(compareByDateThenCreated).map((b) => ({
+      id: b.id,
+      remaining: round2(b.totalAmount),
+    }));
+    let pastRemaining = round2(pastBillAmount);
+
+    for (const p of [...custPayments].sort(compareByDateThenCreated)) {
+      let credit = round2(paymentTotal(p));
+      if (credit <= 0) continue;
+      const payDate = String(p.date ?? '').slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(payDate)) continue;
+
+      if (pastRemaining > 0) {
+        const toward = Math.min(pastRemaining, credit);
+        pastRemaining = round2(pastRemaining - toward);
+        credit = round2(credit - toward);
+      }
+
+      for (const slot of slots) {
+        if (credit <= 0) break;
+        if (slot.remaining <= 0) continue;
+        const toward = Math.min(slot.remaining, credit);
+        slot.remaining = round2(slot.remaining - toward);
+        credit = round2(credit - toward);
+        if (slot.remaining <= 0 && slot.id) {
+          settledByBillId.set(slot.id, payDate);
+        }
+      }
+    }
+  };
+
+  const safeCustomers = Array.isArray(customers) ? customers : [];
+  const safeBills = Array.isArray(bills) ? bills : [];
+  const safePayments = Array.isArray(payments) ? payments : [];
+  const registeredNk = new Set();
+
+  for (const cust of safeCustomers) {
+    const nk = normalizeCustomerName(cust.name);
+    if (!nk) continue;
+    registeredNk.add(nk);
+    const custBills = safeBills.filter((b) => normalizeCustomerName(b.customerName) === nk);
+    const custPayments = safePayments.filter((p) => p.customerId === cust.id);
+    applyPayments(custBills, custPayments, cust.pastBill);
+  }
+
+  const orphanBillsByNk = new Map();
+  for (const bill of safeBills) {
+    const nk = normalizeCustomerName(bill.customerName);
+    if (!nk || registeredNk.has(nk)) continue;
+    if (!orphanBillsByNk.has(nk)) orphanBillsByNk.set(nk, []);
+    orphanBillsByNk.get(nk).push(bill);
+  }
+
+  for (const [nk, obills] of orphanBillsByNk) {
+    const custPayments = safePayments.filter((p) => normalizeCustomerName(p.customerName) === nk);
+    applyPayments(obills, custPayments, 0);
+  }
+
+  return settledByBillId;
+}
+
+/** One row per brand line on bills in the month, with settled date from payment FIFO. */
+function buildMonthlyBillRows(bills, settledByBillId, from, to) {
+  const rows = [];
+  for (const bill of bills) {
+    if (!inDateRange(bill.date, from, to)) continue;
+    const date = String(bill.date ?? '').slice(0, 10);
+    const shop = String(bill.customerName ?? '').trim() || '—';
+    const settledDate = bill.id ? settledByBillId.get(bill.id) || '' : '';
+    const daysToSettle = settledDate ? daysFromYmdToToday(date, settledDate) : null;
+
+    let anyBrand = false;
+    for (const brand of BRANDS) {
+      const bagCount = Number(bill[brand.bagsField]) || 0;
+      if (bagCount <= 0) continue;
+      anyBrand = true;
+      rows.push({
+        rowKey: `${bill.id || date}-${brand.key}`,
+        date,
+        shop,
+        bagType: brand.label,
+        brandKey: brand.key,
+        bagCount,
+        amount: brandLineFromBill(bill, brand.key),
+        settledDate,
+        daysToSettle,
+      });
+    }
+
+    if (!anyBrand) {
+      rows.push({
+        rowKey: `${bill.id || date}-total`,
+        date,
+        shop,
+        bagType: '—',
+        brandKey: '',
+        bagCount: 0,
+        amount: Number(bill.totalAmount) || 0,
+        settledDate,
+        daysToSettle,
+      });
+    }
+  }
+
+  rows.sort((a, b) => {
+    const byDate = a.date.localeCompare(b.date);
+    if (byDate !== 0) return byDate;
+    const byShop = a.shop.localeCompare(b.shop);
+    if (byShop !== 0) return byShop;
+    return a.bagType.localeCompare(b.bagType);
+  });
+  return rows;
 }
 
 function buildShopRowsForRange(bills, payments, customerLocationMap, from, to, brandKey = '') {
@@ -173,6 +304,219 @@ function recordHasBrandBags(record, brandKey) {
   return brand ? (Number(record[brand.bagsField]) || 0) > 0 : false;
 }
 
+function brandCostFromLoad(load, brandKey) {
+  if (!brandKey) return Number(load.totalAmount) || 0;
+  return Number(load[`${brandKey}Cost`]) || 0;
+}
+
+function round2(n) {
+  return Math.round((Number(n) || 0) * 100) / 100;
+}
+
+function compareByDateThenCreated(a, b) {
+  const byDate = String(a.date ?? '').localeCompare(String(b.date ?? ''));
+  if (byDate !== 0) return byDate;
+  return String(a.createdAt ?? '').localeCompare(String(b.createdAt ?? ''));
+}
+
+function emptyBrandBagMap() {
+  return Object.fromEntries(BRANDS.map((b) => [b.key, 0]));
+}
+
+/** Per-brand bag counts from a daily-ledger day entry for one field (start/end/in/out). */
+function ledgerBagsByBrand(dayBrands, brandKey, field) {
+  const byBrand = emptyBrandBagMap();
+  const keys = brandKey ? [brandKey] : BRANDS.map((b) => b.key);
+  for (const k of keys) {
+    byBrand[k] = Number(dayBrands?.[k]?.[field]) || 0;
+  }
+  return byBrand;
+}
+
+/**
+ * Remaining bags at month start (carry from previous month) and at month end.
+ * Uses daily ledger: start-of-day on `from`, end-of-day on latest day ≤ `to`.
+ */
+function remainingBagsForMonth(dailyDays, from, to, brandKey = '') {
+  const empty = {
+    remainingStart: 0,
+    remainingEnd: 0,
+    byBrandStart: emptyBrandBagMap(),
+    byBrandEnd: emptyBrandBagMap(),
+  };
+  const days = Array.isArray(dailyDays) ? dailyDays : [];
+  if (days.length === 0) return empty;
+
+  const exactFrom = days.find((day) => String(day.date ?? '').slice(0, 10) === from);
+  let dayBefore = null;
+  let endDay = null;
+  for (const day of days) {
+    const d = String(day.date ?? '').slice(0, 10);
+    if (d < from) dayBefore = day;
+    if (d <= to) endDay = day;
+  }
+
+  let byBrandStart = emptyBrandBagMap();
+  if (exactFrom) {
+    byBrandStart = ledgerBagsByBrand(exactFrom.brands, brandKey, 'start');
+  } else if (dayBefore) {
+    byBrandStart = ledgerBagsByBrand(dayBefore.brands, brandKey, 'end');
+  }
+
+  const byBrandEnd = endDay
+    ? ledgerBagsByBrand(endDay.brands, brandKey, 'end')
+    : emptyBrandBagMap();
+
+  const remainingStart = Object.values(byBrandStart).reduce((s, n) => s + (Number(n) || 0), 0);
+  const remainingEnd = Object.values(byBrandEnd).reduce((s, n) => s + (Number(n) || 0), 0);
+
+  return {
+    remainingStart,
+    remainingEnd,
+    byBrandStart,
+    byBrandEnd,
+  };
+}
+
+/**
+ * Shop distributions matched to stock loads via FIFO (same approach as Incentive).
+ * Returns one row per bill × brand × stock chunk.
+ */
+function buildStockDistributionRows(loads, bills, brandKey = '') {
+  const brands = brandKey ? BRANDS.filter((b) => b.key === brandKey) : BRANDS;
+  const pools = Object.fromEntries(BRANDS.map((b) => [b.key, []]));
+
+  for (const load of [...loads].sort(compareByDateThenCreated)) {
+    const stockId = String(load.stockId ?? '').trim();
+    if (!stockId) continue;
+    for (const b of BRANDS) {
+      const bagCount = Number(load[`${b.key}Bags`]) || 0;
+      if (bagCount > 0) pools[b.key].push({ stockId, remaining: bagCount });
+    }
+  }
+
+  const takeFromPool = (pool, need, stockIdFilter = null) => {
+    const chunks = [];
+    let left = need;
+    for (const slot of pool) {
+      if (left <= 0) break;
+      if (stockIdFilter && slot.stockId !== stockIdFilter) continue;
+      if (slot.remaining <= 0) continue;
+      const take = Math.min(left, slot.remaining);
+      slot.remaining -= take;
+      left -= take;
+      chunks.push({ stockId: slot.stockId, bags: take });
+    }
+    return chunks;
+  };
+
+  const rows = [];
+  for (const bill of [...bills].sort(compareByDateThenCreated)) {
+    const date = String(bill.date ?? '').slice(0, 10);
+    const shop = String(bill.customerName ?? '').trim() || '—';
+    const explicitStockId = String(bill.stockId ?? '').trim();
+
+    for (const b of brands) {
+      const need = Number(bill[`${b.key}Bags`]) || 0;
+      if (need <= 0) continue;
+
+      const pool = pools[b.key];
+      let chunks = explicitStockId
+        ? takeFromPool(pool, need, explicitStockId)
+        : takeFromPool(pool, need);
+
+      if (explicitStockId) {
+        const taken = chunks.reduce((sum, c) => sum + c.bags, 0);
+        if (taken < need) {
+          chunks = chunks.concat(takeFromPool(pool, need - taken));
+        }
+      }
+
+      // Unmatched bags (over-sold vs loads) still shown without a stock id
+      const matched = chunks.reduce((sum, c) => sum + c.bags, 0);
+      if (matched < need) {
+        chunks = chunks.concat([{ stockId: '—', bags: need - matched }]);
+      }
+
+      const unitRaw = bill[`${b.key}UnitPrice`];
+      const perBagPrice =
+        unitRaw == null || unitRaw === '' ? null : round2(Number(unitRaw));
+      const billLineTotal = brandLineFromBill(bill, b.key);
+
+      for (const chunk of chunks) {
+        const totalAmount =
+          perBagPrice != null
+            ? round2(perBagPrice * chunk.bags)
+            : need > 0
+              ? round2((billLineTotal / need) * chunk.bags)
+              : 0;
+        rows.push({
+          rowKey: `${bill.id || date}-${b.key}-${chunk.stockId}-${rows.length}`,
+          stockId: chunk.stockId,
+          date,
+          shop,
+          brandKey: b.key,
+          bagType: b.label,
+          bags: chunk.bags,
+          perBagPrice,
+          totalAmount,
+        });
+      }
+    }
+  }
+
+  return rows;
+}
+
+/** Map stockId → earliest load purchase date (YYYY-MM-DD). */
+function buildStockPurchaseDateLookup(loads) {
+  const map = new Map();
+  for (const load of loads) {
+    const stockId = String(load.stockId ?? '').trim();
+    if (!stockId) continue;
+    const date = String(load.date ?? '').slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+    const prev = map.get(stockId);
+    if (!prev || date < prev) map.set(stockId, date);
+  }
+  return map;
+}
+
+/** Group distribution rows by stock ID with per-stock subtotals. */
+function groupDistributionByStock(rows, purchaseDateByStock = null) {
+  const groups = new Map();
+  for (const row of rows) {
+    const sid = String(row.stockId ?? '').trim() || '—';
+    if (!groups.has(sid)) {
+      const purchaseDate =
+        purchaseDateByStock instanceof Map
+          ? purchaseDateByStock.get(sid) || ''
+          : purchaseDateByStock?.[sid] || '';
+      groups.set(sid, { stockId: sid, purchaseDate, rows: [], bags: 0, totalAmount: 0 });
+    }
+    const g = groups.get(sid);
+    g.rows.push(row);
+    g.bags += row.bags;
+    g.totalAmount += row.totalAmount;
+  }
+
+  for (const g of groups.values()) {
+    g.rows.sort((a, b) => {
+      const byDate = a.date.localeCompare(b.date);
+      if (byDate !== 0) return byDate;
+      const byShop = a.shop.localeCompare(b.shop);
+      if (byShop !== 0) return byShop;
+      return a.bagType.localeCompare(b.bagType);
+    });
+  }
+
+  return [...groups.values()].sort((a, b) => {
+    if (a.stockId === '—') return 1;
+    if (b.stockId === '—') return -1;
+    return a.stockId.localeCompare(b.stockId, undefined, { numeric: true, sensitivity: 'base' });
+  });
+}
+
 /** Matches backend `paymentCreditToCustomer`: cash + cheque credited to the customer. */
 function paymentTotal(p) {
   const total = Number(p.amount) || 0;
@@ -269,11 +613,33 @@ function BrandBagSummary({ byBrand, total, loadCount, brandKey = '' }) {
   );
 }
 
+/** Compact per-brand remaining bag list for stock distribution summary cards. */
+function BrandRemainingBreakdown({ byBrand, brandKey = '' }) {
+  const visibleBrands = brandKey ? BRANDS.filter((b) => b.key === brandKey) : BRANDS;
+  return (
+    <ul className="mt-2 space-y-1">
+      {visibleBrands.map((b) => (
+        <li key={b.key} className="flex items-center justify-between gap-2 text-xs">
+          <span
+            className={`inline-flex rounded-md px-1.5 py-0.5 font-semibold ${b.iconBg || 'bg-slate-100 text-slate-700'}`}
+          >
+            {b.label}
+          </span>
+          <span className="font-semibold tabular-nums text-slate-800">
+            {(byBrand?.[b.key] || 0).toLocaleString()}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export default function ReportsPage() {
   const [loads, setLoads] = useState([]);
   const [bills, setBills] = useState([]);
   const [payments, setPayments] = useState([]);
   const [customers, setCustomers] = useState([]);
+  const [dailyStockDays, setDailyStockDays] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -286,39 +652,48 @@ export default function ReportsPage() {
   const [appliedTo, setAppliedTo] = useState(() => weeklyRangeFromWeekValue(currentIsoWeekValue()).to);
   const [brandFilter, setBrandFilter] = useState('');
   const [loadsSummaryMonth, setLoadsSummaryMonth] = useState(() => currentMonthValue());
+  const [stockDistMonth, setStockDistMonth] = useState(() => currentMonthValue());
+  const [stockDistBrand, setStockDistBrand] = useState('');
+  const [stockDistMonthPurchasesOnly, setStockDistMonthPurchasesOnly] = useState(false);
+  const [billsMonth, setBillsMonth] = useState(() => currentMonthValue());
 
   const loadData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [loadsRes, billsRes, paymentsRes, customersRes] = await Promise.all([
+      const [loadsRes, billsRes, paymentsRes, customersRes, dailyRes] = await Promise.all([
         fetch(`${apiBase}/api/stocks`),
         fetch(`${apiBase}/api/bills`),
         fetch(`${apiBase}/api/payments`),
         fetch(`${apiBase}/api/customers`),
+        fetch(`${apiBase}/api/daily-stock`),
       ]);
       if (!loadsRes.ok) throw new Error('Failed to load loads');
       if (!billsRes.ok) throw new Error('Failed to load bills');
       if (!paymentsRes.ok) throw new Error('Failed to load payments');
       if (!customersRes.ok) throw new Error('Failed to load customers');
+      if (!dailyRes.ok) throw new Error('Failed to load daily stock');
 
-      const [loadsData, billsData, paymentsData, customersData] = await Promise.all([
+      const [loadsData, billsData, paymentsData, customersData, dailyData] = await Promise.all([
         loadsRes.json(),
         billsRes.json(),
         paymentsRes.json(),
         customersRes.json(),
+        dailyRes.json(),
       ]);
 
       setLoads(Array.isArray(loadsData) ? loadsData : []);
       setBills(Array.isArray(billsData) ? billsData : []);
       setPayments(Array.isArray(paymentsData) ? paymentsData : []);
       setCustomers(Array.isArray(customersData) ? customersData : []);
+      setDailyStockDays(Array.isArray(dailyData?.days) ? dailyData.days : []);
     } catch (e) {
       setError(e.message || 'Could not load report data');
       setLoads([]);
       setBills([]);
       setPayments([]);
       setCustomers([]);
+      setDailyStockDays([]);
     } finally {
       setLoading(false);
     }
@@ -408,6 +783,179 @@ export default function ReportsPage() {
   const loadsSummaryMonthLabel = useMemo(
     () => monthDisplayLabel(loadsSummaryMonth),
     [loadsSummaryMonth],
+  );
+
+  const stockDistRange = useMemo(() => monthlyRangeFromMonthValue(stockDistMonth), [stockDistMonth]);
+
+  const stockDistMonthLabel = useMemo(() => monthDisplayLabel(stockDistMonth), [stockDistMonth]);
+
+  const billsMonthRange = useMemo(() => monthlyRangeFromMonthValue(billsMonth), [billsMonth]);
+
+  const billsMonthLabel = useMemo(() => monthDisplayLabel(billsMonth), [billsMonth]);
+
+  const billSettledDateLookup = useMemo(
+    () => buildBillSettledDateLookup(customers, bills, payments),
+    [customers, bills, payments],
+  );
+
+  const monthlyBillRows = useMemo(
+    () => buildMonthlyBillRows(bills, billSettledDateLookup, billsMonthRange.from, billsMonthRange.to),
+    [bills, billSettledDateLookup, billsMonthRange],
+  );
+
+  const monthlyBillTotals = useMemo(
+    () =>
+      monthlyBillRows.reduce(
+        (acc, r) => ({
+          bagCount: acc.bagCount + r.bagCount,
+          amount: acc.amount + r.amount,
+        }),
+        { bagCount: 0, amount: 0 },
+      ),
+    [monthlyBillRows],
+  );
+
+  const stockDistActiveBrand = useMemo(
+    () => BRANDS.find((b) => b.key === stockDistBrand) ?? null,
+    [stockDistBrand],
+  );
+
+  const stockDistPurchaseDates = useMemo(() => buildStockPurchaseDateLookup(loads), [loads]);
+
+  const stockDistMonthStockIds = useMemo(() => {
+    const { from, to } = stockDistRange;
+    const ids = new Set();
+    for (const [stockId, purchaseDate] of stockDistPurchaseDates) {
+      if (inDateRange(purchaseDate, from, to)) ids.add(stockId);
+    }
+    return ids;
+  }, [stockDistPurchaseDates, stockDistRange]);
+
+  const stockDistRemainingAll = useMemo(
+    () =>
+      remainingBagsForMonth(
+        dailyStockDays,
+        stockDistRange.from,
+        stockDistRange.to,
+        stockDistBrand,
+      ),
+    [dailyStockDays, stockDistRange, stockDistBrand],
+  );
+
+  const stockDistInOutAll = useMemo(() => {
+    const { from, to } = stockDistRange;
+    let bagsIn = 0;
+    let bagsInAmount = 0;
+    let bagsOut = 0;
+    let bagsOutAmount = 0;
+    const bagsInByBrand = emptyBrandBagMap();
+
+    for (const r of loads) {
+      if (!inDateRange(r.date, from, to)) continue;
+      if (!recordHasBrandBags(r, stockDistBrand)) continue;
+      const { byBrand, total } = bagsFromRecord(r, stockDistBrand);
+      bagsIn += total;
+      bagsInAmount += brandCostFromLoad(r, stockDistBrand);
+      for (const b of BRANDS) bagsInByBrand[b.key] += byBrand[b.key] || 0;
+    }
+
+    for (const b of bills) {
+      if (!inDateRange(b.date, from, to)) continue;
+      if (!recordHasBrandBags(b, stockDistBrand)) continue;
+      bagsOut += bagsFromRecord(b, stockDistBrand).total;
+      bagsOutAmount += brandLineFromBill(b, stockDistBrand);
+    }
+
+    return {
+      bagsIn,
+      bagsInAmount: round2(bagsInAmount),
+      bagsOut,
+      bagsOutAmount: round2(bagsOutAmount),
+      bagsInByBrand,
+    };
+  }, [loads, bills, stockDistRange, stockDistBrand]);
+
+  const stockDistRows = useMemo(() => {
+    const { from, to } = stockDistRange;
+    return buildStockDistributionRows(loads, bills, stockDistBrand).filter((r) => {
+      if (!inDateRange(r.date, from, to)) return false;
+      if (!stockDistMonthPurchasesOnly) return true;
+      const sid = String(r.stockId ?? '').trim();
+      return sid && stockDistMonthStockIds.has(sid);
+    });
+  }, [loads, bills, stockDistRange, stockDistBrand, stockDistMonthPurchasesOnly, stockDistMonthStockIds]);
+
+  const stockDistRemaining = useMemo(() => {
+    if (!stockDistMonthPurchasesOnly) return stockDistRemainingAll;
+
+    const byBrandStart = emptyBrandBagMap();
+    const byBrandEnd = emptyBrandBagMap();
+    const outByBrand = emptyBrandBagMap();
+    for (const r of stockDistRows) {
+      outByBrand[r.brandKey] = (outByBrand[r.brandKey] || 0) + (Number(r.bags) || 0);
+    }
+
+    const visible = stockDistBrand ? [stockDistBrand] : BRANDS.map((b) => b.key);
+    for (const key of visible) {
+      const inn = stockDistInOutAll.bagsInByBrand?.[key] || 0;
+      const out = outByBrand[key] || 0;
+      byBrandEnd[key] = Math.max(0, inn - out);
+    }
+
+    return {
+      remainingStart: 0,
+      remainingEnd: Object.values(byBrandEnd).reduce((s, n) => s + (Number(n) || 0), 0),
+      byBrandStart,
+      byBrandEnd,
+    };
+  }, [
+    stockDistMonthPurchasesOnly,
+    stockDistRemainingAll,
+    stockDistRows,
+    stockDistInOutAll,
+    stockDistBrand,
+  ]);
+
+  const stockDistInOut = useMemo(() => {
+    if (!stockDistMonthPurchasesOnly) {
+      return {
+        bagsIn: stockDistInOutAll.bagsIn,
+        bagsInAmount: stockDistInOutAll.bagsInAmount,
+        bagsOut: stockDistInOutAll.bagsOut,
+        bagsOutAmount: stockDistInOutAll.bagsOutAmount,
+      };
+    }
+
+    let bagsOut = 0;
+    let bagsOutAmount = 0;
+    for (const r of stockDistRows) {
+      bagsOut += Number(r.bags) || 0;
+      bagsOutAmount += Number(r.totalAmount) || 0;
+    }
+
+    return {
+      bagsIn: stockDistInOutAll.bagsIn,
+      bagsInAmount: stockDistInOutAll.bagsInAmount,
+      bagsOut,
+      bagsOutAmount: round2(bagsOutAmount),
+    };
+  }, [stockDistMonthPurchasesOnly, stockDistInOutAll, stockDistRows]);
+
+  const stockDistGroups = useMemo(
+    () => groupDistributionByStock(stockDistRows, stockDistPurchaseDates),
+    [stockDistRows, stockDistPurchaseDates],
+  );
+
+  const stockDistTableTotals = useMemo(
+    () =>
+      stockDistGroups.reduce(
+        (acc, g) => ({
+          bags: acc.bags + g.bags,
+          totalAmount: acc.totalAmount + g.totalAmount,
+        }),
+        { bags: 0, totalAmount: 0 },
+      ),
+    [stockDistGroups],
   );
 
   const monthLoadsReport = useMemo(() => {
@@ -736,16 +1284,366 @@ export default function ReportsPage() {
     shopOutstandingByName,
   ]);
 
+  const handleDownloadMonthlyBills = useCallback(() => {
+    downloadMonthlyBillsPdf(
+      {
+        monthLabel: billsMonthLabel,
+        rows: monthlyBillRows,
+        totals: monthlyBillTotals,
+      },
+      { monthSlug: billsMonth },
+    );
+  }, [billsMonth, billsMonthLabel, monthlyBillRows, monthlyBillTotals]);
+
+  const handleDownloadStockDistribution = useCallback(() => {
+    downloadStockDistributionPdf(
+      {
+        monthLabel: stockDistMonthLabel,
+        brandLabel: stockDistActiveBrand ? stockDistActiveBrand.label : 'All brands',
+        brandKey: stockDistBrand,
+        monthPurchasesOnly: stockDistMonthPurchasesOnly,
+        remaining: stockDistRemaining,
+        inOut: stockDistInOut,
+        groups: stockDistGroups,
+        tableTotals: stockDistTableTotals,
+      },
+      {
+        monthSlug: stockDistMonth,
+        brandSlug: stockDistBrand || 'all',
+      },
+    );
+  }, [
+    stockDistMonth,
+    stockDistMonthLabel,
+    stockDistBrand,
+    stockDistActiveBrand,
+    stockDistMonthPurchasesOnly,
+    stockDistRemaining,
+    stockDistInOut,
+    stockDistGroups,
+    stockDistTableTotals,
+  ]);
+
   return (
     <div className="space-y-5">
       <div className="rounded-[20px] bg-white p-5 shadow-lg shadow-slate-200/40 ring-1 ring-slate-100 sm:p-6">
         <h1 className="text-lg font-bold text-slate-900">Reports</h1>
         <p className="mt-1 text-sm text-slate-500">
-          Download today&apos;s customer outstanding balances, a monthly loads summary with per-shop sales and cash
-          in, or generate weekly, monthly, and custom-period reports for cement bags, credit sales, bank deposits,
-          and pending cheques.
+          Review monthly bills with settlement times, stock distribution by month, download today&apos;s customer
+          outstanding balances, a monthly loads summary with per-shop sales and cash in, or generate weekly, monthly,
+          and custom-period reports for cement bags, credit sales, bank deposits, and pending cheques.
         </p>
       </div>
+
+      <Card
+        title="Bills by month"
+        subtitle={`All credit bills in ${billsMonthLabel} — settled date from payments (oldest bills first)`}
+      >
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="block min-w-[160px] text-sm font-medium text-slate-600">
+            Month
+            <input
+              type="month"
+              value={billsMonth}
+              onChange={(e) => setBillsMonth(e.target.value || currentMonthValue())}
+              className={filterControl}
+            />
+          </label>
+          <button
+            type="button"
+            onClick={handleDownloadMonthlyBills}
+            disabled={loading || !!error}
+            className="rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Download bills (PDF)
+          </button>
+        </div>
+
+        <div className={`mt-5 ${scrollTableWrap}`}>
+          <table className="w-full min-w-[900px] border-separate border-spacing-0 text-left text-sm">
+            <thead className={stickyThead}>
+              <tr className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <th className="whitespace-nowrap px-4 py-3">Date</th>
+                <th className="whitespace-nowrap px-4 py-3">Shop name</th>
+                <th className="whitespace-nowrap px-4 py-3">Bag type</th>
+                <th className="whitespace-nowrap px-4 py-3 text-right">Bag count</th>
+                <th className="whitespace-nowrap px-4 py-3 text-right">Amount</th>
+                <th className="whitespace-nowrap px-4 py-3">Bill settled date</th>
+                <th className="whitespace-nowrap px-4 py-3 text-right">Days to settle</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
+                    Loading…
+                  </td>
+                </tr>
+              ) : monthlyBillRows.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
+                    No credit bills in {billsMonthLabel}.
+                  </td>
+                </tr>
+              ) : (
+                monthlyBillRows.map((r) => {
+                  const brand = BRANDS.find((b) => b.key === r.brandKey);
+                  return (
+                    <tr key={r.rowKey} className="border-t border-slate-100 hover:bg-slate-50/80">
+                      <td className="whitespace-nowrap px-4 py-3 tabular-nums text-slate-600">{r.date}</td>
+                      <td className="whitespace-nowrap px-4 py-3 font-medium text-slate-900">{r.shop}</td>
+                      <td className="whitespace-nowrap px-4 py-3">
+                        {r.bagType !== '—' ? (
+                          <span
+                            className={`inline-flex rounded-lg px-2.5 py-1 text-xs font-semibold ${
+                              brand?.iconBg || 'bg-slate-100 text-slate-700'
+                            }`}
+                          >
+                            {r.bagType}
+                          </span>
+                        ) : (
+                          '—'
+                        )}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-slate-800">
+                        {r.bagCount.toLocaleString()}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-right font-semibold tabular-nums text-slate-900">
+                        {money(r.amount)}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 tabular-nums text-slate-600">
+                        {r.settledDate || '—'}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-slate-600">
+                        {r.daysToSettle != null ? r.daysToSettle : '—'}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+            {!loading && monthlyBillRows.length > 0 ? (
+              <tfoot>
+                <tr className="border-t-2 border-slate-200 bg-indigo-50/60 font-semibold text-slate-900">
+                  <td className="px-4 py-3" colSpan={3}>
+                    Total ({monthlyBillRows.length} line{monthlyBillRows.length === 1 ? '' : 's'})
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">
+                    {monthlyBillTotals.bagCount.toLocaleString()}
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-indigo-900">
+                    {money(monthlyBillTotals.amount)}
+                  </td>
+                  <td className="px-4 py-3" colSpan={2} />
+                </tr>
+              </tfoot>
+            ) : null}
+          </table>
+        </div>
+      </Card>
+
+      <Card
+        title="Stock Distribution per month"
+        subtitle={`Carry-over, bags in/out, and shop distributions for ${stockDistMonthLabel}${
+          stockDistActiveBrand ? ` · ${stockDistActiveBrand.label}` : ' · all brands'
+        }${stockDistMonthPurchasesOnly ? ' · stocks purchased this month only' : ''} — rows grouped by stock`}
+      >
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="block min-w-[160px] text-sm font-medium text-slate-600">
+            Month
+            <input
+              type="month"
+              value={stockDistMonth}
+              onChange={(e) => setStockDistMonth(e.target.value || currentMonthValue())}
+              className={filterControl}
+            />
+          </label>
+          <label className="block min-w-[160px] text-sm font-medium text-slate-600">
+            Brand
+            <select
+              value={stockDistBrand}
+              onChange={(e) => setStockDistBrand(e.target.value)}
+              className={filterControl}
+            >
+              <option value="">All brands</option>
+              {BRANDS.map((b) => (
+                <option key={b.key} value={b.key}>
+                  {b.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex cursor-pointer items-center gap-2 pb-2.5 text-sm font-medium text-slate-700">
+            <input
+              type="checkbox"
+              checked={stockDistMonthPurchasesOnly}
+              onChange={(e) => setStockDistMonthPurchasesOnly(e.target.checked)}
+              className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500/40"
+            />
+            Stocks purchased this month only
+          </label>
+          <button
+            type="button"
+            onClick={handleDownloadStockDistribution}
+            disabled={loading || !!error}
+            className="rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Download stock distribution (PDF)
+          </button>
+        </div>
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="rounded-xl bg-slate-50 p-4 ring-1 ring-slate-200">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+              Remaining from last month
+            </p>
+            <p className="mt-1 text-xl font-bold tabular-nums text-slate-900">
+              {stockDistRemaining.remainingStart.toLocaleString()}
+            </p>
+            <p className="mt-0.5 text-xs text-slate-500">bags at month start</p>
+            <BrandRemainingBreakdown
+              byBrand={stockDistRemaining.byBrandStart}
+              brandKey={stockDistBrand}
+            />
+          </div>
+          <div className="rounded-xl bg-emerald-50 p-4 ring-1 ring-emerald-100">
+            <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
+              Remaining at month end
+            </p>
+            <p className="mt-1 text-xl font-bold tabular-nums text-emerald-900">
+              {stockDistRemaining.remainingEnd.toLocaleString()}
+            </p>
+            <p className="mt-0.5 text-xs text-emerald-600">bags left after month</p>
+            <BrandRemainingBreakdown
+              byBrand={stockDistRemaining.byBrandEnd}
+              brandKey={stockDistBrand}
+            />
+          </div>
+          <div className="rounded-xl bg-sky-50 p-4 ring-1 ring-sky-100">
+            <p className="text-xs font-semibold uppercase tracking-wide text-sky-700">All bags in</p>
+            <p className="mt-1 text-xl font-bold tabular-nums text-sky-900">
+              {stockDistInOut.bagsIn.toLocaleString()}
+            </p>
+            <p className="mt-0.5 text-xs text-sky-600">{money(stockDistInOut.bagsInAmount)}</p>
+          </div>
+          <div className="rounded-xl bg-violet-50 p-4 ring-1 ring-violet-100">
+            <p className="text-xs font-semibold uppercase tracking-wide text-violet-700">
+              All bags distributed
+            </p>
+            <p className="mt-1 text-xl font-bold tabular-nums text-violet-900">
+              {stockDistInOut.bagsOut.toLocaleString()}
+            </p>
+            <p className="mt-0.5 text-xs text-violet-600">{money(stockDistInOut.bagsOutAmount)}</p>
+          </div>
+        </div>
+
+        <div className={`mt-5 ${scrollTableWrap}`}>
+          <table className="w-full min-w-[780px] border-separate border-spacing-0 text-left text-sm">
+            <thead className={stickyThead}>
+              <tr className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <th className="whitespace-nowrap px-4 py-3">StockID</th>
+                <th className="whitespace-nowrap px-4 py-3">Date</th>
+                <th className="whitespace-nowrap px-4 py-3">Shop name</th>
+                <th className="whitespace-nowrap px-4 py-3">Bag type</th>
+                <th className="whitespace-nowrap px-4 py-3 text-right">Amount</th>
+                <th className="whitespace-nowrap px-4 py-3 text-right">Per bag price</th>
+                <th className="whitespace-nowrap px-4 py-3 text-right">Total amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
+                    Loading…
+                  </td>
+                </tr>
+              ) : stockDistGroups.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
+                    No shop distributions in {stockDistMonthLabel}
+                    {stockDistActiveBrand ? ` for ${stockDistActiveBrand.label}` : ''}
+                    {stockDistMonthPurchasesOnly ? ' from stocks purchased this month' : ''}.
+                  </td>
+                </tr>
+              ) : (
+                stockDistGroups.flatMap((g) => [
+                  ...g.rows.map((r) => {
+                    const brand = BRANDS.find((b) => b.key === r.brandKey);
+                    return (
+                      <tr
+                        key={r.rowKey}
+                        className="border-t border-slate-100 hover:bg-slate-50/80"
+                      >
+                        <td className="whitespace-nowrap px-4 py-3 font-medium text-slate-900">
+                          {r.stockId}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 tabular-nums text-slate-600">
+                          {r.date}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 text-slate-800">{r.shop}</td>
+                        <td className="whitespace-nowrap px-4 py-3">
+                          <span
+                            className={`inline-flex rounded-lg px-2.5 py-1 text-xs font-semibold ${
+                              brand?.iconBg || 'bg-slate-100 text-slate-700'
+                            }`}
+                          >
+                            {r.bagType}
+                          </span>
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-slate-800">
+                          {r.bags.toLocaleString()}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-slate-600">
+                          {r.perBagPrice != null ? money(r.perBagPrice) : '—'}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 text-right font-semibold tabular-nums text-slate-900">
+                          {money(r.totalAmount)}
+                        </td>
+                      </tr>
+                    );
+                  }),
+                  <tr
+                    key={`${g.stockId}-subtotal`}
+                    className="border-t border-slate-200 bg-slate-50/90 font-semibold text-slate-900"
+                  >
+                    <td className="px-4 py-3" colSpan={4}>
+                      Stock {g.stockId} total
+                      {g.purchaseDate ? (
+                        <span className="ml-2 font-normal text-slate-500">
+                          · purchased {g.purchaseDate}
+                        </span>
+                      ) : null}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">
+                      {g.bags.toLocaleString()}
+                    </td>
+                    <td className="px-4 py-3" />
+                    <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-indigo-800">
+                      {money(g.totalAmount)}
+                    </td>
+                  </tr>,
+                ])
+              )}
+            </tbody>
+            {!loading && stockDistGroups.length > 0 ? (
+              <tfoot>
+                <tr className="border-t-2 border-slate-200 bg-indigo-50/60 font-semibold text-slate-900">
+                  <td className="px-4 py-3" colSpan={4}>
+                    Grand total
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">
+                    {stockDistTableTotals.bags.toLocaleString()}
+                  </td>
+                  <td className="px-4 py-3" />
+                  <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-indigo-900">
+                    {money(stockDistTableTotals.totalAmount)}
+                  </td>
+                </tr>
+              </tfoot>
+            ) : null}
+          </table>
+        </div>
+      </Card>
 
       <Card
         title="Total loads summary"

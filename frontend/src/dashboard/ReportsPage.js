@@ -10,6 +10,12 @@ import {
 } from './tableToolbar';
 import { buildChequeTableRows, chequePortion } from './paymentCheques';
 import { downloadCustomerOutstandingReport } from './customerOutstandingExport';
+import {
+  buildFinancialCashInRows,
+  buildFinancialConvertingChequeRows,
+  buildFinancialLoadPurchaseRows,
+} from './financialSummary';
+import { downloadFinancialSummaryPdf } from './financialSummaryPdf';
 import { downloadLoadsSummaryPdf } from './loadsSummaryPdf';
 import { downloadMonthlyBillsPdf } from './monthlyBillsPdf';
 import { downloadReportsPdf } from './reportsPdf';
@@ -657,6 +663,14 @@ export default function ReportsPage() {
   const [stockDistMonthPurchasesOnly, setStockDistMonthPurchasesOnly] = useState(false);
   const [billsMonth, setBillsMonth] = useState(() => currentMonthValue());
 
+  const [fsPeriodMode, setFsPeriodMode] = useState('monthly');
+  const [fsSelectedWeek, setFsSelectedWeek] = useState(() => currentIsoWeekValue());
+  const [fsSelectedMonth, setFsSelectedMonth] = useState(() => currentMonthValue());
+  const [fsDateFrom, setFsDateFrom] = useState(() => monthlyRangeFromMonthValue(currentMonthValue()).from);
+  const [fsDateTo, setFsDateTo] = useState(() => monthlyRangeFromMonthValue(currentMonthValue()).to);
+  const [fsAppliedFrom, setFsAppliedFrom] = useState(() => monthlyRangeFromMonthValue(currentMonthValue()).from);
+  const [fsAppliedTo, setFsAppliedTo] = useState(() => monthlyRangeFromMonthValue(currentMonthValue()).to);
+
   const loadData = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -744,6 +758,40 @@ export default function ReportsPage() {
   const handleGenerate = () => {
     setAppliedFrom(dateFrom);
     setAppliedTo(dateTo);
+  };
+
+  const applyFsWeek = (weekValue) => {
+    const week = weekValue || currentIsoWeekValue();
+    const { from, to } = weeklyRangeFromWeekValue(week);
+    setFsSelectedWeek(week);
+    setFsDateFrom(from);
+    setFsDateTo(to);
+    setFsAppliedFrom(from);
+    setFsAppliedTo(to);
+  };
+
+  const applyFsMonth = (monthValue) => {
+    const month = monthValue || currentMonthValue();
+    const { from, to } = monthlyRangeFromMonthValue(month);
+    setFsSelectedMonth(month);
+    setFsDateFrom(from);
+    setFsDateTo(to);
+    setFsAppliedFrom(from);
+    setFsAppliedTo(to);
+  };
+
+  const handleFsPeriodChange = (mode) => {
+    setFsPeriodMode(mode);
+    if (mode === 'weekly') {
+      applyFsWeek(fsSelectedWeek || currentIsoWeekValue());
+    } else if (mode === 'monthly') {
+      applyFsMonth(fsSelectedMonth || currentMonthValue());
+    }
+  };
+
+  const handleFsGenerate = () => {
+    setFsAppliedFrom(fsDateFrom);
+    setFsAppliedTo(fsDateTo);
   };
 
   const activeBrand = useMemo(() => BRANDS.find((b) => b.key === brandFilter) ?? null, [brandFilter]);
@@ -1324,14 +1372,90 @@ export default function ReportsPage() {
     stockDistTableTotals,
   ]);
 
+  const fsPeriodLabel =
+    fsAppliedFrom && fsAppliedTo
+      ? `${fsAppliedFrom} → ${fsAppliedTo}`
+      : fsAppliedFrom
+        ? `From ${fsAppliedFrom}`
+        : fsAppliedTo
+          ? `Until ${fsAppliedTo}`
+          : 'All dates';
+
+  const financialLoadRows = useMemo(
+    () => buildFinancialLoadPurchaseRows(loads, fsAppliedFrom, fsAppliedTo),
+    [loads, fsAppliedFrom, fsAppliedTo],
+  );
+
+  const financialLoadGrandTotal = useMemo(
+    () => financialLoadRows.reduce((s, r) => s + (Number(r.totalCost) || 0), 0),
+    [financialLoadRows],
+  );
+
+  const financialCashInRows = useMemo(
+    () => buildFinancialCashInRows(payments, fsAppliedFrom, fsAppliedTo),
+    [payments, fsAppliedFrom, fsAppliedTo],
+  );
+
+  const financialCashInTotals = useMemo(
+    () =>
+      financialCashInRows.reduce(
+        (acc, r) => ({
+          cash: acc.cash + (Number(r.cashAmount) || 0),
+          cheque: acc.cheque + (Number(r.chequeAmount) || 0),
+          total: acc.total + (Number(r.total) || 0),
+        }),
+        { cash: 0, cheque: 0, total: 0 },
+      ),
+    [financialCashInRows],
+  );
+
+  const financialConvertingRows = useMemo(
+    () => buildFinancialConvertingChequeRows(payments, fsAppliedFrom, fsAppliedTo),
+    [payments, fsAppliedFrom, fsAppliedTo],
+  );
+
+  const financialConvertingTotal = useMemo(
+    () => financialConvertingRows.reduce((s, r) => s + (Number(r.amount) || 0), 0),
+    [financialConvertingRows],
+  );
+
+  const handleDownloadFinancialSummary = useCallback(() => {
+    const fileSlug =
+      fsPeriodMode === 'monthly' && fsSelectedMonth
+        ? fsSelectedMonth
+        : fsPeriodMode === 'weekly' && fsSelectedWeek
+          ? fsSelectedWeek.replace(/W/, 'w')
+          : `${fsAppliedFrom || 'from'}_${fsAppliedTo || 'to'}`;
+    downloadFinancialSummaryPdf(
+      {
+        periodLabel: fsPeriodLabel,
+        loadRows: financialLoadRows,
+        cashInRows: financialCashInRows,
+        convertingRows: financialConvertingRows,
+      },
+      { fileSlug },
+    );
+  }, [
+    fsPeriodMode,
+    fsSelectedMonth,
+    fsSelectedWeek,
+    fsAppliedFrom,
+    fsAppliedTo,
+    fsPeriodLabel,
+    financialLoadRows,
+    financialCashInRows,
+    financialConvertingRows,
+  ]);
+
   return (
     <div className="space-y-5">
       <div className="rounded-[20px] bg-white p-5 shadow-lg shadow-slate-200/40 ring-1 ring-slate-100 sm:p-6">
         <h1 className="text-lg font-bold text-slate-900">Reports</h1>
         <p className="mt-1 text-sm text-slate-500">
-          Review monthly bills with settlement times, stock distribution by month, download today&apos;s customer
-          outstanding balances, a monthly loads summary with per-shop sales and cash in, or generate weekly, monthly,
-          and custom-period reports for cement bags, credit sales, bank deposits, and pending cheques.
+          Review monthly bills with settlement times, stock distribution by month, a financial summary of loads
+          purchased, cash in, and converting cheques, download today&apos;s customer outstanding balances, a monthly
+          loads summary with per-shop sales and cash in, or generate weekly, monthly, and custom-period reports for
+          cement bags, credit sales, bank deposits, and pending cheques.
         </p>
       </div>
 
@@ -1669,8 +1793,8 @@ export default function ReportsPage() {
           </button>
         </div>
 
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          <div className="rounded-xl bg-slate-800 p-4 text-white shadow-md ring-1 ring-slate-700 sm:col-span-2 lg:col-span-1">
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="rounded-xl bg-slate-800 p-4 text-white shadow-md ring-1 ring-slate-700">
             <p className="text-xs font-semibold uppercase tracking-wide text-white/85">Bags from loads</p>
             <p className="mt-1 text-2xl font-bold tabular-nums">{monthLoadsReport.total.toLocaleString()}</p>
             <p className="mt-0.5 text-xs text-white/75">
@@ -1773,6 +1897,359 @@ export default function ReportsPage() {
               </tfoot>
             ) : null}
           </table>
+        </div>
+      </Card>
+
+      <Card
+        title="Financial summary"
+        subtitle={`Loads purchased, cash in from shops, and cheques to convert — ${fsPeriodLabel}`}
+      >
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="flex flex-col gap-2">
+              <span className="text-sm font-medium text-slate-600">Period</span>
+              <div className="inline-flex rounded-xl bg-slate-100/90 p-1 ring-1 ring-slate-200/60">
+                <button
+                  type="button"
+                  className={`${periodBtn} ${fsPeriodMode === 'weekly' ? periodActive : periodIdle}`}
+                  onClick={() => handleFsPeriodChange('weekly')}
+                >
+                  Weekly
+                </button>
+                <button
+                  type="button"
+                  className={`${periodBtn} ${fsPeriodMode === 'monthly' ? periodActive : periodIdle}`}
+                  onClick={() => handleFsPeriodChange('monthly')}
+                >
+                  Monthly
+                </button>
+                <button
+                  type="button"
+                  className={`${periodBtn} ${fsPeriodMode === 'custom' ? periodActive : periodIdle}`}
+                  onClick={() => setFsPeriodMode('custom')}
+                >
+                  Custom
+                </button>
+              </div>
+            </div>
+
+            {fsPeriodMode === 'weekly' ? (
+              <label className="block min-w-[160px] text-sm font-medium text-slate-600">
+                Week
+                <input
+                  type="week"
+                  value={fsSelectedWeek}
+                  onChange={(e) => applyFsWeek(e.target.value)}
+                  className={filterControl}
+                />
+              </label>
+            ) : null}
+
+            {fsPeriodMode === 'monthly' ? (
+              <label className="block min-w-[160px] text-sm font-medium text-slate-600">
+                Month
+                <input
+                  type="month"
+                  value={fsSelectedMonth}
+                  onChange={(e) => applyFsMonth(e.target.value)}
+                  className={filterControl}
+                />
+              </label>
+            ) : null}
+
+            {fsPeriodMode === 'custom' ? (
+              <>
+                <label className="block min-w-[140px] text-sm font-medium text-slate-600">
+                  From date
+                  <input
+                    type="date"
+                    value={fsDateFrom}
+                    onChange={(e) => setFsDateFrom(e.target.value)}
+                    className={filterControl}
+                  />
+                </label>
+                <label className="block min-w-[140px] text-sm font-medium text-slate-600">
+                  To date
+                  <input
+                    type="date"
+                    value={fsDateTo}
+                    onChange={(e) => setFsDateTo(e.target.value)}
+                    className={filterControl}
+                  />
+                </label>
+                <div className="flex items-end">
+                  <button
+                    type="button"
+                    onClick={handleFsGenerate}
+                    className="rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40"
+                  >
+                    Apply period
+                  </button>
+                </div>
+              </>
+            ) : null}
+
+            <button
+              type="button"
+              onClick={handleDownloadFinancialSummary}
+              disabled={loading || !!error}
+              className="rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Download financial summary (PDF)
+            </button>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="rounded-xl bg-amber-50 p-4 ring-1 ring-amber-100">
+              <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">Loads purchased</p>
+              <p className="mt-1 text-xl font-bold tabular-nums text-amber-900">
+                {money(financialLoadGrandTotal)}
+              </p>
+              <p className="mt-0.5 text-xs text-amber-600">
+                {financialLoadRows.length} line{financialLoadRows.length === 1 ? '' : 's'}
+              </p>
+            </div>
+            <div className="rounded-xl bg-emerald-50 p-4 ring-1 ring-emerald-100">
+              <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Cash in total</p>
+              <p className="mt-1 text-xl font-bold tabular-nums text-emerald-900">
+                {money(financialCashInTotals.total)}
+              </p>
+              <p className="mt-0.5 text-xs text-emerald-600">
+                Cash {money(financialCashInTotals.cash)} · Cheques {money(financialCashInTotals.cheque)}
+              </p>
+            </div>
+            <div className="rounded-xl bg-rose-50 p-4 ring-1 ring-rose-100">
+              <p className="text-xs font-semibold uppercase tracking-wide text-rose-700">Cheques converting</p>
+              <p className="mt-1 text-xl font-bold tabular-nums text-rose-900">
+                {money(financialConvertingTotal)}
+              </p>
+              <p className="mt-0.5 text-xs text-rose-600">
+                {financialConvertingRows.length} cheque{financialConvertingRows.length === 1 ? '' : 's'}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-6 space-y-6">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-800">1. All loads purchased</h3>
+            <p className="mt-0.5 text-xs text-slate-500">
+              Stock loads in the period — date, vehicle, cheque, invoice, bag type, bags, and cost
+            </p>
+            <div className={`mt-3 ${scrollTableWrap}`}>
+              <table className="w-full min-w-[880px] border-separate border-spacing-0 text-left text-sm">
+                <thead className={stickyThead}>
+                  <tr className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    <th className="whitespace-nowrap px-4 py-3">Date</th>
+                    <th className="whitespace-nowrap px-4 py-3">Vehicle</th>
+                    <th className="whitespace-nowrap px-4 py-3">Cheque number</th>
+                    <th className="whitespace-nowrap px-4 py-3">Invoice number</th>
+                    <th className="whitespace-nowrap px-4 py-3">Bag type</th>
+                    <th className="whitespace-nowrap px-4 py-3 text-right">No of bags</th>
+                    <th className="whitespace-nowrap px-4 py-3 text-right">Total cost</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {loading ? (
+                    <tr>
+                      <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
+                        Loading…
+                      </td>
+                    </tr>
+                  ) : financialLoadRows.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
+                        No loads purchased in {fsPeriodLabel}.
+                      </td>
+                    </tr>
+                  ) : (
+                    financialLoadRows.map((r) => (
+                      <tr key={r.rowKey} className="border-t border-slate-100 hover:bg-slate-50/80">
+                        <td className="whitespace-nowrap px-4 py-3 tabular-nums text-slate-600">{r.date}</td>
+                        <td className="whitespace-nowrap px-4 py-3 font-medium text-slate-900">{r.vehicle}</td>
+                        <td className="whitespace-nowrap px-4 py-3 tabular-nums text-slate-600">
+                          {r.chequeNumber}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 tabular-nums text-slate-600">
+                          {r.invoiceNumber}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 text-slate-700">{r.bagType}</td>
+                        <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-slate-700">
+                          {r.bags.toLocaleString()}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 text-right font-semibold tabular-nums text-slate-900">
+                          {money(r.totalCost)}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+                {!loading && financialLoadRows.length > 0 ? (
+                  <tfoot>
+                    <tr className="border-t-2 border-slate-200 bg-indigo-50/60 font-semibold text-slate-900">
+                      <td className="px-4 py-3" colSpan={6}>
+                        Grand total
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-indigo-900">
+                        {money(financialLoadGrandTotal)}
+                      </td>
+                    </tr>
+                  </tfoot>
+                ) : null}
+              </table>
+            </div>
+          </div>
+
+          <div>
+            <h3 className="text-sm font-semibold text-slate-800">2. Total cash in</h3>
+            <p className="mt-0.5 text-xs text-slate-500">
+              Cash and cheques from shops — cheque number, date, and amount shown under each row when present
+            </p>
+            <div className={`mt-3 ${scrollTableWrap}`}>
+              <table className="w-full min-w-[800px] border-separate border-spacing-0 text-left text-sm">
+                <thead className={stickyThead}>
+                  <tr className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    <th className="whitespace-nowrap px-4 py-3">Date</th>
+                    <th className="whitespace-nowrap px-4 py-3">Shop</th>
+                    <th className="whitespace-nowrap px-4 py-3">Bill number</th>
+                    <th className="whitespace-nowrap px-4 py-3 text-right">Cash amount</th>
+                    <th className="whitespace-nowrap px-4 py-3 text-right">Cheque amount</th>
+                    <th className="whitespace-nowrap px-4 py-3 text-right">Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {loading ? (
+                    <tr>
+                      <td colSpan={6} className="px-4 py-8 text-center text-slate-500">
+                        Loading…
+                      </td>
+                    </tr>
+                  ) : financialCashInRows.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="px-4 py-8 text-center text-slate-500">
+                        No cash in recorded for {fsPeriodLabel}.
+                      </td>
+                    </tr>
+                  ) : (
+                    financialCashInRows.flatMap((r) => {
+                      const main = (
+                        <tr key={r.rowKey} className="border-t border-slate-100 hover:bg-slate-50/80">
+                          <td className="whitespace-nowrap px-4 py-3 tabular-nums text-slate-600">{r.date}</td>
+                          <td className="px-4 py-3 font-medium text-slate-900">{r.shop}</td>
+                          <td className="whitespace-nowrap px-4 py-3 tabular-nums text-slate-600">
+                            {r.billNumber}
+                          </td>
+                          <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-slate-700">
+                            {r.cashAmount > 0 ? money(r.cashAmount) : '—'}
+                          </td>
+                          <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-slate-700">
+                            {r.chequeAmount > 0 ? money(r.chequeAmount) : '—'}
+                          </td>
+                          <td className="whitespace-nowrap px-4 py-3 text-right font-semibold tabular-nums text-slate-900">
+                            {money(r.total)}
+                          </td>
+                        </tr>
+                      );
+                      if (!r.chequeDetails) return [main];
+                      return [
+                        main,
+                        <tr key={`${r.rowKey}-cheques`} className="bg-slate-50/50">
+                          <td colSpan={6} className="px-4 pb-2.5 pt-0 text-[11px] leading-snug text-slate-500">
+                            {r.chequeDetails}
+                          </td>
+                        </tr>,
+                      ];
+                    })
+                  )}
+                </tbody>
+                {!loading && financialCashInRows.length > 0 ? (
+                  <tfoot>
+                    <tr className="border-t-2 border-slate-200 bg-indigo-50/60 font-semibold text-slate-900">
+                      <td className="px-4 py-3" colSpan={3}>
+                        Grand total
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-indigo-900">
+                        {money(financialCashInTotals.cash)}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-indigo-900">
+                        {money(financialCashInTotals.cheque)}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-indigo-900">
+                        {money(financialCashInTotals.total)}
+                      </td>
+                    </tr>
+                  </tfoot>
+                ) : null}
+              </table>
+            </div>
+          </div>
+
+          <div>
+            <h3 className="text-sm font-semibold text-slate-800">3. Cheques to be converted</h3>
+            <p className="mt-0.5 text-xs text-slate-500">
+              Shop cheques with issue date in the selected period
+            </p>
+            <div className={`mt-3 ${scrollTableWrap}`}>
+              <table className="w-full min-w-[800px] border-separate border-spacing-0 text-left text-sm">
+                <thead className={stickyThead}>
+                  <tr className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    <th className="whitespace-nowrap px-4 py-3">Date</th>
+                    <th className="whitespace-nowrap px-4 py-3">Cheque number</th>
+                    <th className="whitespace-nowrap px-4 py-3">Issue date</th>
+                    <th className="whitespace-nowrap px-4 py-3">Bill number</th>
+                    <th className="whitespace-nowrap px-4 py-3">Customer</th>
+                    <th className="whitespace-nowrap px-4 py-3 text-right">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {loading ? (
+                    <tr>
+                      <td colSpan={6} className="px-4 py-8 text-center text-slate-500">
+                        Loading…
+                      </td>
+                    </tr>
+                  ) : financialConvertingRows.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="px-4 py-8 text-center text-slate-500">
+                        No cheques with an issue date in {fsPeriodLabel}.
+                      </td>
+                    </tr>
+                  ) : (
+                    financialConvertingRows.map((r) => (
+                      <tr key={r.rowKey} className="border-t border-slate-100 hover:bg-slate-50/80">
+                        <td className="whitespace-nowrap px-4 py-3 tabular-nums text-slate-600">{r.date}</td>
+                        <td className="whitespace-nowrap px-4 py-3 font-medium tabular-nums text-slate-900">
+                          {r.chequeNumber}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 tabular-nums text-slate-600">
+                          {r.issueDate}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 tabular-nums text-slate-600">
+                          {r.billNumber}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 text-slate-700">{r.customer}</td>
+                        <td className="whitespace-nowrap px-4 py-3 text-right font-semibold tabular-nums text-slate-900">
+                          {money(r.amount)}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+                {!loading && financialConvertingRows.length > 0 ? (
+                  <tfoot>
+                    <tr className="border-t-2 border-slate-200 bg-indigo-50/60 font-semibold text-slate-900">
+                      <td className="px-4 py-3" colSpan={5}>
+                        Grand total
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-indigo-900">
+                        {money(financialConvertingTotal)}
+                      </td>
+                    </tr>
+                  </tfoot>
+                ) : null}
+              </table>
+            </div>
+          </div>
         </div>
       </Card>
 

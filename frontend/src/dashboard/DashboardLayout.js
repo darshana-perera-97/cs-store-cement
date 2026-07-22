@@ -270,6 +270,50 @@ export default function DashboardLayout() {
   const userInitial = signedInName.charAt(0).toUpperCase() || '?';
   const roleLabel = isAdmin() ? 'Administrator' : 'Staff';
 
+  const renderSidebarFooter = () => (
+    <>
+      <div
+        className={`rounded-2xl bg-gradient-to-br p-3 shadow-lg ring-1 ${overdueCardTint}`}
+        aria-live="polite"
+      >
+        <p
+          className={`text-[10px] font-medium uppercase tracking-wider ${OVERDUE_PRIORITY_LABEL[overduePriority]}`}
+        >
+          Overdue bills
+        </p>
+        <p
+          className={`mt-0.5 text-lg font-bold tabular-nums tracking-tight ${OVERDUE_PRIORITY_AMOUNT[overduePriority]}`}
+        >
+          {normalizedOverdue == null ? '—' : formatLkr2(normalizedOverdue.totalOutstanding)}
+        </p>
+        <p className={`text-[11px] leading-snug ${OVERDUE_PRIORITY_SUB[overduePriority]}`}>
+          {normalizedOverdue == null ? <LoadingSpinner size="sm" className="text-[11px]" /> : overduePriorityCopy(normalizedOverdue)}
+        </p>
+      </div>
+      <div className="flex items-center gap-3 rounded-2xl bg-slate-50/90 px-3 py-2.5 ring-1 ring-slate-100">
+        <div
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-200 to-violet-200 text-sm font-semibold text-indigo-900"
+          aria-hidden
+        >
+          {userInitial}
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold text-slate-900" title={signedInName}>
+            {signedInName}
+          </p>
+          <p className="truncate text-xs text-slate-500">{roleLabel}</p>
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={signOut}
+        className="w-full rounded-xl border border-slate-200 bg-white py-2.5 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:bg-slate-50"
+      >
+        Sign out
+      </button>
+    </>
+  );
+
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-[#F4F7FE] text-slate-900">
       {mobileOpen ? (
@@ -345,7 +389,8 @@ export default function DashboardLayout() {
             ))}
           </nav>
 
-          <div className="mt-4 space-y-3 border-t border-slate-100 pt-4">
+          {/* Mobile-only: bag stock + footer sections scroll with nav */}
+          <div className="mt-4 space-y-3 border-t border-slate-100 pt-4 md:hidden">
             <div className="rounded-2xl bg-white p-3 shadow-md ring-1 ring-slate-100">
               <div className="flex items-center justify-between gap-2">
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
@@ -382,49 +427,13 @@ export default function DashboardLayout() {
                 </div>
               )}
             </div>
-            <div
-              className={`rounded-2xl bg-gradient-to-br p-3 shadow-lg ring-1 ${overdueCardTint}`}
-              aria-live="polite"
-            >
-              <p
-                className={`text-[10px] font-medium uppercase tracking-wider ${OVERDUE_PRIORITY_LABEL[overduePriority]}`}
-              >
-                Overdue bills
-              </p>
-              <p
-                className={`mt-0.5 text-lg font-bold tabular-nums tracking-tight ${OVERDUE_PRIORITY_AMOUNT[overduePriority]}`}
-              >
-                {normalizedOverdue == null ? '—' : formatLkr2(normalizedOverdue.totalOutstanding)}
-              </p>
-              <p className={`text-[11px] leading-snug ${OVERDUE_PRIORITY_SUB[overduePriority]}`}>
-                {normalizedOverdue == null ? <LoadingSpinner size="sm" className="text-[11px]" /> : overduePriorityCopy(normalizedOverdue)}
-              </p>
-            </div>
-            <div className="flex items-center gap-3 rounded-2xl bg-slate-50/90 px-3 py-2.5 ring-1 ring-slate-100">
-              <div
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-200 to-violet-200 text-sm font-semibold text-indigo-900"
-                aria-hidden
-              >
-                {userInitial}
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold text-slate-900" title={signedInName}>
-                  {signedInName}
-                </p>
-                <p className="truncate text-xs text-slate-500">{roleLabel}</p>
-              </div>
-            </div>
+            {renderSidebarFooter()}
           </div>
         </div>
 
-        <div className="mt-4 shrink-0 border-t border-slate-100 pt-4">
-          <button
-            type="button"
-            onClick={signOut}
-            className="w-full rounded-xl border border-slate-200 bg-white py-2.5 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:bg-slate-50"
-          >
-            Sign out
-          </button>
+        {/* Desktop: overdue, profile, sign out stay pinned at bottom */}
+        <div className="mt-4 hidden shrink-0 space-y-3 border-t border-slate-100 pt-4 md:block">
+          {renderSidebarFooter()}
         </div>
       </aside>
 

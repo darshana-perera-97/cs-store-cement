@@ -3,12 +3,18 @@ import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { getApiBase } from '../apiBase';
 import { getUsername } from '../auth';
 import {
+  LoadingSpinner,
   TableFiltersBar,
   TablePaginationBar,
   filterControl,
+  filterLabel,
+  mobileCardList,
+  MobileRowCard,
   modalPanelClass,
   rowMatchesQuery,
   scrollTableWrap,
+  stickyFirstTd,
+  stickyFirstTh,
   stickyThead,
   useTablePagination,
 } from './tableToolbar';
@@ -302,7 +308,7 @@ export default function CustomerTransactionsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <Link
             to="/dashboard/customers"
@@ -322,9 +328,7 @@ export default function CustomerTransactionsPage() {
           ) : (
             <h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-900">Customer account</h1>
           )}
-          <p className="mt-1 max-w-xl text-sm text-slate-500">
-            See everything that changed this balance — opening credit, sales, and payments.
-          </p>
+          <p className="mt-1 text-sm text-slate-500">Opening credit, sales, and payments for this account.</p>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
           <button
@@ -537,7 +541,7 @@ export default function CustomerTransactionsPage() {
               : null
           }
         >
-          <label className="block min-w-[200px] flex-1 text-sm font-medium text-slate-600">
+          <label className={filterLabel}>
             Search activity
             <input
               type="search"
@@ -550,14 +554,67 @@ export default function CustomerTransactionsPage() {
         </TableFiltersBar>
 
         <div className="space-y-3">
-          <div className={scrollTableWrap}>
+          <div className={mobileCardList}>
             {loading ? (
-              <p className="px-4 py-12 text-center text-sm text-slate-500">Loading activity…</p>
+              <p className="rounded-2xl bg-white px-4 py-8 text-center text-sm text-slate-500 ring-1 ring-slate-100">
+                <LoadingSpinner label="Loading activity…" />
+              </p>
+            ) : transactions.length === 0 ? (
+              <div className="rounded-2xl bg-white px-4 py-8 text-center ring-1 ring-slate-100">
+                <p className="font-medium text-slate-700">No activity yet</p>
+                <p className="mt-1 text-sm text-slate-500">
+                  Credit sales and payments will show up here once recorded.
+                </p>
+                {customer ? (
+                  <Link
+                    to={recordPaymentHref}
+                    className="mt-4 inline-flex text-sm font-semibold text-indigo-600 hover:text-indigo-800"
+                  >
+                    Record a payment →
+                  </Link>
+                ) : null}
+              </div>
+            ) : filteredTransactions.length === 0 ? (
+              <p className="rounded-2xl bg-white px-4 py-8 text-center text-sm text-slate-500 ring-1 ring-slate-100">
+                Nothing matches your search or filter. Try clearing filters above.
+              </p>
+            ) : (
+              pagedTransactions.map((tx) => {
+                const meta = txKindMeta(tx.kind);
+                const isCredit = tx.direction === 'credit';
+                return (
+                  <MobileRowCard
+                    key={`${tx.kind}-${tx.id}`}
+                    title={formatDisplayDate(tx.date)}
+                    subtitle={tx.type || meta.short}
+                    badge={
+                      <span
+                        className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ${meta.badge}`}
+                      >
+                        {meta.short}
+                      </span>
+                    }
+                    onClick={() => setDetailTx(tx)}
+                    fields={[
+                      {
+                        label: 'Amount',
+                        value: isCredit ? `−${money(tx.amount)}` : `+${money(tx.amount)}`,
+                      },
+                      { label: 'Details', value: tx.details || '—' },
+                    ]}
+                  />
+                );
+              })
+            )}
+          </div>
+          <div className={`hidden sm:block ${scrollTableWrap}`}>
+            {loading ? (
+              <p className="px-4 py-12 text-center text-sm text-slate-500"><LoadingSpinner label="Loading activity…" /></p>
             ) : (
               <table className="w-full min-w-[520px] border-separate border-spacing-0 text-left text-sm">
                 <thead className={stickyThead}>
                   <tr className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    <th className="whitespace-nowrap px-4 py-3">Date</th>
+                    <th className={`whitespace-nowrap px-4 py-3 ${stickyFirstTh}`}>Date</th>
                     <th className="px-4 py-3">Type</th>
                     <th className="px-4 py-3">Details</th>
                     <th className="whitespace-nowrap px-4 py-3 text-right">Amount</th>
@@ -597,7 +654,7 @@ export default function CustomerTransactionsPage() {
                           {...detailRowAttrs(() => setDetailTx(tx), 'hover:bg-slate-50/80')}
                           aria-label={`${tx.type || 'Transaction'} ${tx.date || ''}`}
                         >
-                          <td className="whitespace-nowrap px-4 py-3 tabular-nums text-slate-700">
+                          <td className={`whitespace-nowrap px-4 py-3 tabular-nums text-slate-700 ${stickyFirstTd}`}>
                             {formatDisplayDate(tx.date)}
                           </td>
                           <td className="px-4 py-3">
@@ -674,7 +731,8 @@ export default function CustomerTransactionsPage() {
                   balances stay correct.
                 </p>
               ) : null}
-              <label className="block text-sm font-medium text-slate-600">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <label className="block text-sm font-medium text-slate-600 sm:col-span-2">
                 Customer name
                 <input
                   type="text"
@@ -711,7 +769,7 @@ export default function CustomerTransactionsPage() {
                   autoComplete="tel"
                 />
               </label>
-              <label className="block text-sm font-medium text-slate-600">
+              <label className="block text-sm font-medium text-slate-600 sm:col-span-2">
                 Email
                 <input
                   type="email"
@@ -748,7 +806,7 @@ export default function CustomerTransactionsPage() {
                   Days after each bill date before unpaid credit sales appear as overdue (default {DEFAULT_OVERDUE_DAYS}).
                 </span>
               </label>
-              <label className="block text-sm font-medium text-slate-600">
+              <label className="block text-sm font-medium text-slate-600 sm:col-span-2">
                 Opening balance (LKR)
                 <input
                   type="number"
@@ -761,6 +819,7 @@ export default function CustomerTransactionsPage() {
                   placeholder="0.00"
                 />
               </label>
+              </div>
               <div className="flex flex-wrap justify-end gap-2 pt-1">
                 <button
                   type="button"

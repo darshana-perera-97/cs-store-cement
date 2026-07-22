@@ -2,12 +2,19 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { getApiBase } from '../apiBase';
 import { getUsername } from '../auth';
 import {
+  LoadingSpinner,
   TableFiltersBar,
   TablePaginationBar,
   filterControl,
+  filterLabel,
+  filterLabelNarrow,
   inDateRange,
+  mobileCardList,
+  MobileRowCard,
   rowMatchesQuery,
   scrollTableWrap,
+  stickyFirstTd,
+  stickyFirstTh,
   stickyThead,
   useTablePagination,
 } from './tableToolbar';
@@ -265,7 +272,7 @@ export default function BankPage() {
               : null
         }
       >
-        <label className="block min-w-[140px] text-sm font-medium text-slate-600">
+        <label className={filterLabelNarrow}>
           From date
           <input
             type="date"
@@ -274,7 +281,7 @@ export default function BankPage() {
             className={filterControl}
           />
         </label>
-        <label className="block min-w-[140px] text-sm font-medium text-slate-600">
+        <label className={filterLabelNarrow}>
           To date
           <input
             type="date"
@@ -284,7 +291,7 @@ export default function BankPage() {
           />
         </label>
         {tab === 'cheque' ? (
-          <label className="block min-w-[200px] flex-1 text-sm font-medium text-slate-600">
+          <label className={filterLabel}>
             Search
             <input
               type="search"
@@ -322,11 +329,35 @@ export default function BankPage() {
 
       {tab === 'cash' ? (
         <div className="space-y-3">
-          <div className={scrollTableWrap}>
+          <div className={mobileCardList}>
+            {loading ? (
+              <p className="rounded-2xl bg-white px-4 py-8 text-center text-sm text-slate-500 ring-1 ring-slate-100">
+                <LoadingSpinner />
+              </p>
+            ) : dailyRows.length === 0 ? (
+              <p className="rounded-2xl bg-white px-4 py-8 text-center text-sm text-slate-500 ring-1 ring-slate-100">
+                No payment days in this range.
+              </p>
+            ) : (
+              pagedDailyRows.map((r) => (
+                <MobileRowCard
+                  key={r.date}
+                  title={r.date}
+                  onClick={() => setDetailDaily(r)}
+                  fields={[
+                    { label: 'Cash in', value: money(r.cashIn) },
+                    { label: 'Bank deposit', value: money(r.bankDeposit) },
+                    { label: 'Total income', value: money(r.totalIncome) },
+                  ]}
+                />
+              ))
+            )}
+          </div>
+          <div className={`hidden sm:block ${scrollTableWrap}`}>
             <table className="w-full min-w-[720px] border-separate border-spacing-0 text-left text-sm">
               <thead className={stickyThead}>
                 <tr className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  <th className="whitespace-nowrap px-4 py-3">Date</th>
+                  <th className={`whitespace-nowrap px-4 py-3 ${stickyFirstTh}`}>Date</th>
                   <th className="whitespace-nowrap px-4 py-3 text-right">Cash in</th>
                   <th className="whitespace-nowrap px-4 py-3 text-right">Bank deposit</th>
                   <th className="whitespace-nowrap px-4 py-3 text-right">Total income (cash + cheque)</th>
@@ -336,7 +367,7 @@ export default function BankPage() {
                 {loading ? (
                   <tr>
                     <td colSpan={4} className="px-4 py-10 text-center text-slate-500">
-                      Loading…
+                      <LoadingSpinner />
                     </td>
                   </tr>
                 ) : dailyRows.length === 0 ? (
@@ -352,7 +383,9 @@ export default function BankPage() {
                       {...detailRowAttrs(() => setDetailDaily(r), 'hover:bg-slate-50/80')}
                       aria-label={`Bank summary ${r.date}`}
                     >
-                      <td className="whitespace-nowrap px-4 py-3 tabular-nums font-medium">{r.date}</td>
+                      <td className={`whitespace-nowrap px-4 py-3 tabular-nums font-medium ${stickyFirstTd}`}>
+                        {r.date}
+                      </td>
                       <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-emerald-800">
                         {money(r.cashIn)}
                       </td>
@@ -369,7 +402,7 @@ export default function BankPage() {
               {!loading && dailyRows.length > 0 ? (
                 <tfoot>
                   <tr className="border-t border-slate-200 bg-slate-50/90 text-sm font-semibold text-slate-900">
-                    <td className="px-4 py-3">Range total</td>
+                    <td className={`px-4 py-3 ${stickyFirstTd}`}>Range total</td>
                     <td className="px-4 py-3 text-right tabular-nums">{money(dailyTotals.cashIn)}</td>
                     <td className="px-4 py-3 text-right tabular-nums">{money(dailyTotals.bankDeposit)}</td>
                     <td className="px-4 py-3 text-right tabular-nums">{money(dailyTotals.totalIncome)}</td>
@@ -443,11 +476,91 @@ export default function BankPage() {
               {markErr}
             </p>
           ) : null}
-          <div className={scrollTableWrap}>
+          <div className={mobileCardList}>
+            {loading ? (
+              <p className="rounded-2xl bg-white px-4 py-8 text-center text-sm text-slate-500 ring-1 ring-slate-100">
+                <LoadingSpinner />
+              </p>
+            ) : chequeRows.length === 0 ? (
+              <p className="rounded-2xl bg-white px-4 py-8 text-center text-sm text-slate-500 ring-1 ring-slate-100">
+                {search.trim()
+                  ? 'No cheques match your search or filters.'
+                  : chequeInRange.length === 0
+                    ? 'No cheques in this range.'
+                    : chequeFilter === 'pending'
+                      ? 'No pending cheques in this range.'
+                      : chequeFilter === 'deposited'
+                        ? 'No deposited cheques in this range.'
+                        : 'No cheques in this range.'}
+              </p>
+            ) : (
+              pagedChequeRows.map((r) => {
+                const rowKey = depositQueueRowKey(r);
+                const depositedLabel = r.chequeDepositedBy || formatDepositedAt(r.chequeDepositedAt);
+                return (
+                  <MobileRowCard
+                    key={rowKey}
+                    title={r.chequeNumber || '—'}
+                    subtitle={`${r.chequeDate} · ${r.customerName || '—'}`}
+                    badge={
+                      r.chequeDeposited ? (
+                        <span className="inline-flex rounded-lg bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-900 ring-1 ring-emerald-200">
+                          Deposited
+                        </span>
+                      ) : (
+                        <span className="inline-flex rounded-lg bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-900 ring-1 ring-amber-200">
+                          Pending
+                        </span>
+                      )
+                    }
+                    fields={[
+                      { label: 'Amount', value: money(r.amount) },
+                      { label: 'Bill #', value: r.billNumber || '—' },
+                      ...(r.chequeDeposited && depositedLabel
+                        ? [
+                            {
+                              label: 'Deposited',
+                              value: [
+                                r.chequeDepositedBy ? `by ${r.chequeDepositedBy}` : '',
+                                r.chequeDepositedAt ? formatDepositedAt(r.chequeDepositedAt) : '',
+                              ]
+                                .filter(Boolean)
+                                .join(' · '),
+                            },
+                          ]
+                        : []),
+                    ]}
+                    actions={
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => setDetailCheque(r)}
+                          className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
+                        >
+                          Details
+                        </button>
+                        {!r.chequeDeposited ? (
+                          <button
+                            type="button"
+                            disabled={!!markingChequeId}
+                            onClick={() => handleMarkChequeDeposited(r)}
+                            className="rounded-xl bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {markingChequeId === rowKey ? 'Saving…' : 'Mark deposited'}
+                          </button>
+                        ) : null}
+                      </>
+                    }
+                  />
+                );
+              })
+            )}
+          </div>
+          <div className={`hidden sm:block ${scrollTableWrap}`}>
             <table className="w-full min-w-[560px] border-separate border-spacing-0 text-left text-sm">
               <thead className={stickyThead}>
                 <tr className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  <th className="whitespace-nowrap px-4 py-3">Cheque date</th>
+                  <th className={`whitespace-nowrap px-4 py-3 ${stickyFirstTh}`}>Cheque date</th>
                   <th className="whitespace-nowrap px-4 py-3 text-right">Amount</th>
                   <th className="whitespace-nowrap px-4 py-3 font-mono">Cheque #</th>
                   <th className="whitespace-nowrap px-4 py-3 text-center">Deposit</th>
@@ -457,7 +570,7 @@ export default function BankPage() {
                 {loading ? (
                   <tr>
                     <td colSpan={4} className="px-4 py-10 text-center text-slate-500">
-                      Loading…
+                      <LoadingSpinner />
                     </td>
                   </tr>
                 ) : chequeRows.length === 0 ? (
@@ -487,7 +600,9 @@ export default function BankPage() {
                         )}
                         aria-label={`Cheque ${r.chequeNumber || rowKey}`}
                       >
-                        <td className="whitespace-nowrap px-4 py-3 tabular-nums">{r.chequeDate}</td>
+                        <td className={`whitespace-nowrap px-4 py-3 tabular-nums ${stickyFirstTd}`}>
+                          {r.chequeDate}
+                        </td>
                         <td className="whitespace-nowrap px-4 py-3 text-right font-semibold tabular-nums text-violet-800">
                           {money(r.amount)}
                         </td>
@@ -528,7 +643,7 @@ export default function BankPage() {
               {!loading && chequeRows.length > 0 ? (
                 <tfoot>
                   <tr className="border-t border-slate-200 bg-slate-50/90 text-sm font-semibold text-slate-900">
-                    <td className="px-4 py-3">Range total</td>
+                    <td className={`px-4 py-3 ${stickyFirstTd}`}>Range total</td>
                     <td className="px-4 py-3 text-right tabular-nums">{money(chequeTotal)}</td>
                     <td className="px-4 py-3" colSpan={2} />
                   </tr>

@@ -2,11 +2,13 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { DEFAULT_DEV_API_URL, getApiBase } from './apiBase';
 import { isAuthed, setAuth } from './auth';
+import { shopNameInitials, useShopName } from './shopConfig';
 
 const apiBase = getApiBase();
 
 function Login() {
   const navigate = useNavigate();
+  const shopName = useShopName();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -70,19 +72,19 @@ function Login() {
   };
 
   return (
-    <div className="flex flex-1 flex-col items-center justify-center bg-slate-50 px-5 py-12">
+    <div className="flex min-w-0 flex-1 flex-col items-center justify-center overflow-x-hidden bg-slate-50 px-4 py-8 sm:px-5 sm:py-12">
       <main className="w-full max-w-[420px]">
-        <div className="max-h-[min(90vh,calc(100dvh-3rem))] overflow-y-auto overscroll-contain rounded-3xl bg-white px-8 py-10 shadow-xl shadow-slate-200/60 ring-1 ring-slate-100 sm:px-10">
+        <div className="max-h-[min(90vh,calc(100dvh-3rem))] overflow-y-auto overscroll-contain rounded-3xl bg-white px-5 py-8 shadow-xl shadow-slate-200/60 ring-1 ring-slate-100 sm:px-10 sm:py-10">
           <div className="mb-8 flex items-center gap-3">
             <div
               className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-600 to-violet-600 text-sm font-bold tracking-tight text-white shadow-lg shadow-indigo-500/30"
               aria-hidden
             >
-              CS
+              {shopNameInitials(shopName)}
             </div>
             <div>
               <p className="text-[15px] font-semibold tracking-tight text-slate-900">
-                CS Store
+                {shopName}
               </p>
               <p className="text-xs font-medium text-slate-500">
                 Cement supply

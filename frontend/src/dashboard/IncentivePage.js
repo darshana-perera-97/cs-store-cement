@@ -19,13 +19,21 @@ import {
   downloadIncentivePdf,
 } from './incentivePdf';
 import {
+  LoadingSpinner,
+  MobileRowCard,
   TableFiltersBar,
   TablePaginationBar,
   filterControl,
+  filterLabel,
+  filterLabelNarrow,
   inDateRange,
+  mobileCardList,
   modalPanelClassMd,
   rowMatchesQuery,
   scrollTableWrap,
+  stickyFirstTd,
+  stickyFirstTdMuted,
+  stickyFirstTh,
   stickyThead,
   useTablePagination,
 } from './tableToolbar';
@@ -901,7 +909,7 @@ export default function IncentivePage() {
             : null
         }
       >
-        <label className="block min-w-[220px] flex-1 text-sm font-medium text-slate-600">
+        <label className={filterLabel}>
           Search
           <input
             type="search"
@@ -911,7 +919,7 @@ export default function IncentivePage() {
             className={filterControl}
           />
         </label>
-        <label className="block min-w-[140px] text-sm font-medium text-slate-600">
+        <label className={filterLabelNarrow}>
           From date
           <input
             type="date"
@@ -920,7 +928,7 @@ export default function IncentivePage() {
             className={filterControl}
           />
         </label>
-        <label className="block min-w-[140px] text-sm font-medium text-slate-600">
+        <label className={filterLabelNarrow}>
           To date
           <input
             type="date"
@@ -941,7 +949,7 @@ export default function IncentivePage() {
         </div>
       </TableFiltersBar>
 
-      <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h2 className="text-base font-semibold text-slate-900">Cost Calculator for Loads</h2>
           <p className="mt-1 text-sm text-slate-500">
@@ -958,11 +966,53 @@ export default function IncentivePage() {
         </button>
       </div>
 
-      <div className={scrollTableWrap}>
+      <div className={mobileCardList}>
+        {loading ? (
+          <p className="rounded-[20px] bg-white px-4 py-8 text-center text-sm text-slate-500 shadow-md ring-1 ring-slate-100">
+            <LoadingSpinner />
+          </p>
+        ) : tableRows.length === 0 ? (
+          <p className="rounded-[20px] bg-white px-4 py-8 text-center text-sm text-slate-500 shadow-md ring-1 ring-slate-100">
+            No stock loads yet. Add loads on the Loads page to see incentive data here.
+          </p>
+        ) : filteredRows.length === 0 ? (
+          <p className="rounded-[20px] bg-white px-4 py-8 text-center text-sm text-slate-500 shadow-md ring-1 ring-slate-100">
+            No rows match your search or filters.
+          </p>
+        ) : (
+          pagedLoadRows.map((r) => {
+            const brand = brandByKey[r.brandKey];
+            return (
+              <MobileRowCard
+                key={r.rowKey}
+                title={r.brandLabel}
+                subtitle={r.date}
+                badge={
+                  <span
+                    className={`inline-flex rounded-lg px-2.5 py-1 text-xs font-semibold ${brand?.iconBg || 'bg-slate-100 text-slate-700'}`}
+                  >
+                    {r.bags.toLocaleString()} bags
+                  </span>
+                }
+                fields={[
+                  { label: 'Per bag', value: moneyOrDashStyled(r.perBagCost) },
+                  { label: 'Cut-off', value: moneyOrDashStyled(r.cutOffPrice) },
+                  { label: 'Transport', value: moneyOrDashStyled(r.transportPerBag) },
+                  { label: 'Margin', value: moneyOrDashStyled(r.margin) },
+                  { label: 'Total / bag', value: moneyOrDashStyled(r.unloadingPrice) },
+                ]}
+                onClick={() => setDetailRow(r)}
+              />
+            );
+          })
+        )}
+      </div>
+
+      <div className={`hidden sm:block ${scrollTableWrap}`}>
         <table className="w-full min-w-[1100px] border-separate border-spacing-0 text-left text-sm">
           <thead className={stickyThead}>
             <tr className="border-b border-slate-100 bg-slate-50/90 text-xs font-semibold uppercase tracking-wide text-slate-500">
-              <th className="whitespace-nowrap px-4 py-3">Date</th>
+              <th className={`whitespace-nowrap px-4 py-3 ${stickyFirstTh}`}>Date</th>
               <th className="whitespace-nowrap px-4 py-3">Bag type</th>
               <th className="whitespace-nowrap px-4 py-3 text-right">Bags</th>
               <th className="whitespace-nowrap px-4 py-3 text-right">Per bag price</th>
@@ -978,7 +1028,7 @@ export default function IncentivePage() {
             {loading ? (
               <tr>
                 <td colSpan={8} className="px-4 py-10 text-center text-slate-500">
-                  Loading…
+                  <LoadingSpinner />
                 </td>
               </tr>
             ) : tableRows.length === 0 ? (
@@ -1002,7 +1052,9 @@ export default function IncentivePage() {
                     {...detailRowAttrs(() => setDetailRow(r), 'bg-white hover:bg-slate-50/80')}
                     aria-label={`Incentive ${r.stockId} ${r.brandLabel} details`}
                   >
-                    <td className="whitespace-nowrap px-4 py-3 tabular-nums text-slate-600">{r.date}</td>
+                    <td className={`whitespace-nowrap px-4 py-3 tabular-nums text-slate-600 ${stickyFirstTd}`}>
+                      {r.date}
+                    </td>
                     <td className="whitespace-nowrap px-4 py-3">
                       <span
                         className={`inline-flex rounded-lg px-2.5 py-1 text-xs font-semibold ${brand?.iconBg || 'bg-slate-100 text-slate-700'}`}
@@ -1056,7 +1108,7 @@ export default function IncentivePage() {
         />
       ) : null}
 
-      <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h2 className="text-base font-semibold text-slate-900">Incentive Calculator</h2>
           <p className="mt-1 text-sm text-slate-500">
@@ -1119,11 +1171,67 @@ export default function IncentivePage() {
         </div>
       </div>
 
-      <div className={scrollTableWrap}>
+      <div className={mobileCardList}>
+        {loading ? (
+          <p className="rounded-[20px] bg-white px-4 py-8 text-center text-sm text-slate-500 shadow-md ring-1 ring-slate-100">
+            <LoadingSpinner />
+          </p>
+        ) : loadBasicIncentiveRows.length === 0 ? (
+          <p className="rounded-[20px] bg-white px-4 py-8 text-center text-sm text-slate-500 shadow-md ring-1 ring-slate-100">
+            No stock loads yet. Add loads on the Loads page to see incentive data here.
+          </p>
+        ) : basicIncentiveRows.length === 0 ? (
+          <p className="rounded-[20px] bg-white px-4 py-8 text-center text-sm text-slate-500 shadow-md ring-1 ring-slate-100">
+            No rows match your search or filters.
+          </p>
+        ) : (
+          pagedBasicRows.map((r) => {
+            if (r.type === 'stockTotal') {
+              return (
+                <MobileRowCard
+                  key={r.rowKey}
+                  title={`${r.stockId} total`}
+                  fields={[
+                    { label: 'Bags', value: r.bags.toLocaleString() },
+                    {
+                      label: 'Total incentive',
+                      value: r.hasTotalIncentive ? moneyOrDashStyled(r.basicTotalIncentive) : '—',
+                    },
+                  ]}
+                />
+              );
+            }
+            const brand = brandByKey[r.brandKey];
+            return (
+              <MobileRowCard
+                key={r.rowKey}
+                title={r.stockId}
+                subtitle={r.date}
+                badge={
+                  <span
+                    className={`inline-flex rounded-lg px-2.5 py-1 text-xs font-semibold ${brand?.iconBg || 'bg-slate-100 text-slate-700'}`}
+                  >
+                    {r.brandLabel}
+                  </span>
+                }
+                fields={[
+                  { label: 'Invoice', value: r.invoiceNumber ?? '—' },
+                  { label: 'Bags', value: r.bags.toLocaleString() },
+                  { label: 'Cost / bag', value: moneyOrDashStyled(r.totalCostPerBag) },
+                  { label: 'Inc. / bag', value: moneyOrDashStyled(r.basicIncentivePerBag) },
+                  { label: 'Total inc.', value: moneyOrDashStyled(r.basicTotalIncentive) },
+                ]}
+              />
+            );
+          })
+        )}
+      </div>
+
+      <div className={`hidden sm:block ${scrollTableWrap}`}>
         <table className="w-full min-w-[1480px] border-separate border-spacing-0 text-left text-sm">
           <thead className={stickyThead}>
             <tr className="border-b border-slate-100 bg-slate-50/90 text-xs font-semibold uppercase tracking-wide text-slate-500">
-              <th className="whitespace-nowrap px-4 py-3">Date</th>
+              <th className={`whitespace-nowrap px-4 py-3 ${stickyFirstTh}`}>Date</th>
               <th className="whitespace-nowrap px-4 py-3">StockID</th>
               <th className="whitespace-nowrap px-4 py-3">Invoice number</th>
               <th className="whitespace-nowrap px-4 py-3">Bag type</th>
@@ -1140,7 +1248,7 @@ export default function IncentivePage() {
             {loading ? (
               <tr>
                 <td colSpan={11} className="px-4 py-10 text-center text-slate-500">
-                  Loading…
+                  <LoadingSpinner />
                 </td>
               </tr>
             ) : loadBasicIncentiveRows.length === 0 ? (
@@ -1163,7 +1271,7 @@ export default function IncentivePage() {
                       key={r.rowKey}
                       className="border-t border-slate-200 bg-slate-100/90 font-semibold text-slate-900"
                     >
-                      <td className="px-4 py-3" />
+                      <td className={`px-4 py-3 ${stickyFirstTdMuted}`} />
                       <td colSpan={2} className="px-4 py-3">
                         {r.stockId} total
                       </td>
@@ -1184,7 +1292,9 @@ export default function IncentivePage() {
                 const brand = brandByKey[r.brandKey];
                 return (
                   <tr key={r.rowKey} className="bg-white">
-                    <td className="whitespace-nowrap px-4 py-3 tabular-nums text-slate-600">{r.date}</td>
+                    <td className={`whitespace-nowrap px-4 py-3 tabular-nums text-slate-600 ${stickyFirstTd}`}>
+                      {r.date}
+                    </td>
                     <td className="whitespace-nowrap px-4 py-3 font-medium text-slate-800">{r.stockId}</td>
                     <td className="whitespace-nowrap px-4 py-3 text-slate-800">{r.invoiceNumber ?? '—'}</td>
                     <td className="whitespace-nowrap px-4 py-3">
@@ -1252,7 +1362,7 @@ export default function IncentivePage() {
         />
       ) : null}
 
-      <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h2 className="text-base font-semibold text-slate-900">Special Price Calculator</h2>
           {!loading && distributionRows.length > 0 ? (
@@ -1299,11 +1409,67 @@ export default function IncentivePage() {
         </div>
       </div>
 
-      <div className={scrollTableWrap}>
+      <div className={mobileCardList}>
+        {loading ? (
+          <p className="rounded-[20px] bg-white px-4 py-8 text-center text-sm text-slate-500 shadow-md ring-1 ring-slate-100">
+            <LoadingSpinner />
+          </p>
+        ) : distributionRows.length === 0 ? (
+          <p className="rounded-[20px] bg-white px-4 py-8 text-center text-sm text-slate-500 shadow-md ring-1 ring-slate-100">
+            No shop distributions yet. Add credit bills on the Bills page to see allocations here.
+          </p>
+        ) : filteredSpecialPriceDistributionRows.length === 0 ? (
+          <p className="rounded-[20px] bg-white px-4 py-8 text-center text-sm text-slate-500 shadow-md ring-1 ring-slate-100">
+            No rows match your search or filters.
+          </p>
+        ) : (
+          pagedDistributionRows.map((r) => {
+            if (r.type === 'shopTotal') {
+              return (
+                <MobileRowCard
+                  key={r.rowKey}
+                  title={`${r.shop} total`}
+                  fields={[
+                    { label: 'Bags', value: r.bags.toLocaleString() },
+                    {
+                      label: 'Total difference',
+                      value: r.hasTotalDifference ? moneyOrDashStyled(r.totalDifference) : '—',
+                    },
+                  ]}
+                />
+              );
+            }
+            const brand = brandByKey[r.brandKey];
+            return (
+              <MobileRowCard
+                key={r.rowKey}
+                title={r.shop}
+                subtitle={r.date}
+                badge={
+                  <span
+                    className={`inline-flex rounded-lg px-2.5 py-1 text-xs font-semibold ${brand?.iconBg || 'bg-slate-100 text-slate-700'}`}
+                  >
+                    {r.brandLabel}
+                  </span>
+                }
+                fields={[
+                  { label: 'Bags', value: r.bags.toLocaleString() },
+                  { label: 'Cut-off', value: moneyOrDashStyled(r.cutOffPrice) },
+                  { label: 'Sold price', value: moneyOrDashStyled(r.sellingPricePerBag) },
+                  { label: 'Diff / bag', value: moneyOrDashStyled(r.differencePerBag) },
+                  { label: 'Total diff', value: moneyOrDashStyled(r.totalDifference) },
+                ]}
+              />
+            );
+          })
+        )}
+      </div>
+
+      <div className={`hidden sm:block ${scrollTableWrap}`}>
         <table className="w-full min-w-[960px] border-separate border-spacing-0 text-left text-sm">
           <thead className={stickyThead}>
             <tr className="border-b border-slate-100 bg-slate-50/90 text-xs font-semibold uppercase tracking-wide text-slate-500">
-              <th className="whitespace-nowrap px-4 py-3">Date</th>
+              <th className={`whitespace-nowrap px-4 py-3 ${stickyFirstTh}`}>Date</th>
               <th className="whitespace-nowrap px-4 py-3">Shop Name</th>
               <th className="whitespace-nowrap px-4 py-3">Bag Type</th>
               <th className="whitespace-nowrap px-4 py-3 text-right">Amount</th>
@@ -1317,7 +1483,7 @@ export default function IncentivePage() {
             {loading ? (
               <tr>
                 <td colSpan={8} className="px-4 py-10 text-center text-slate-500">
-                  Loading…
+                  <LoadingSpinner />
                 </td>
               </tr>
             ) : distributionRows.length === 0 ? (
@@ -1340,7 +1506,7 @@ export default function IncentivePage() {
                       key={r.rowKey}
                       className="border-t border-slate-200 bg-slate-100/90 font-semibold text-slate-900"
                     >
-                      <td className="px-4 py-3" />
+                      <td className={`px-4 py-3 ${stickyFirstTdMuted}`} />
                       <td colSpan={2} className="px-4 py-3">
                         {r.shop} total
                       </td>
@@ -1358,7 +1524,9 @@ export default function IncentivePage() {
                 const brand = brandByKey[r.brandKey];
                 return (
                   <tr key={r.rowKey} className="bg-white">
-                    <td className="whitespace-nowrap px-4 py-3 tabular-nums text-slate-600">{r.date}</td>
+                    <td className={`whitespace-nowrap px-4 py-3 tabular-nums text-slate-600 ${stickyFirstTd}`}>
+                      {r.date}
+                    </td>
                     <td className="whitespace-nowrap px-4 py-3 text-slate-800">{r.shop}</td>
                     <td className="whitespace-nowrap px-4 py-3">
                       <span

@@ -3,12 +3,19 @@ import { getApiBase } from '../apiBase';
 import { getUsername } from '../auth';
 import { BRANDS } from './brandTheme';
 import {
+  LoadingSpinner,
   TableFiltersBar,
   TablePaginationBar,
   filterControl,
+  filterLabel,
+  filterLabelNarrow,
   inDateRange,
+  mobileCardList,
+  MobileRowCard,
   rowMatchesQuery,
   scrollTableWrap,
+  stickyFirstTd,
+  stickyFirstTh,
   stickyThead,
   useTablePagination,
   modalPanelClass,
@@ -242,17 +249,11 @@ export default function PromotionsPage() {
   return (
     <div className="space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-sm text-slate-500">
-          Record <span className="font-medium text-slate-700">free bags</span> given as promotions. Saved to{' '}
-          <span className="font-medium text-slate-700">promotions.json</span> and counted as{' '}
-          <span className="font-medium text-slate-700">stock out</span> in{' '}
-          <span className="font-medium text-slate-700">liveStock.json</span> (remaining bags and daily ledger “Out” on the
-          issue date). Does <span className="font-medium text-slate-700">not</span> change customer balances or cash.
-        </p>
+        <p className="text-sm text-slate-500">Record free promotional bags given to customers.</p>
         <button
           type="button"
           onClick={openModal}
-          className="inline-flex shrink-0 items-center justify-center rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/25 transition hover:brightness-[1.03]"
+          className="inline-flex w-full shrink-0 items-center justify-center rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/25 transition hover:brightness-[1.03] sm:w-auto"
         >
           Add promotion
         </button>
@@ -271,7 +272,7 @@ export default function PromotionsPage() {
             : null
         }
       >
-        <label className="block min-w-[200px] flex-1 text-sm font-medium text-slate-600">
+        <label className={filterLabel}>
           Search
           <input
             type="search"
@@ -281,7 +282,7 @@ export default function PromotionsPage() {
             className={filterControl}
           />
         </label>
-        <label className="block min-w-[140px] text-sm font-medium text-slate-600">
+        <label className={filterLabelNarrow}>
           From date
           <input
             type="date"
@@ -290,7 +291,7 @@ export default function PromotionsPage() {
             className={filterControl}
           />
         </label>
-        <label className="block min-w-[140px] text-sm font-medium text-slate-600">
+        <label className={filterLabelNarrow}>
           To date
           <input
             type="date"
@@ -299,7 +300,7 @@ export default function PromotionsPage() {
             className={filterControl}
           />
         </label>
-        <label className="block min-w-[180px] flex-1 text-sm font-medium text-slate-600">
+        <label className={filterLabel}>
           Customer
           <select
             value={customerFilter}
@@ -317,11 +318,41 @@ export default function PromotionsPage() {
       </TableFiltersBar>
 
       <div className="space-y-3">
-        <div className={scrollTableWrap}>
+        <div className={mobileCardList}>
+          {loading ? (
+            <p className="rounded-2xl bg-white px-4 py-8 text-center text-sm text-slate-500 ring-1 ring-slate-100">
+              <LoadingSpinner />
+            </p>
+          ) : rows.length === 0 ? (
+            <p className="rounded-2xl bg-white px-4 py-8 text-center text-sm text-slate-500 ring-1 ring-slate-100">
+              No promotions yet. Use &quot;Add promotion&quot; to record free bags for a customer.
+            </p>
+          ) : filteredRows.length === 0 ? (
+            <p className="rounded-2xl bg-white px-4 py-8 text-center text-sm text-slate-500 ring-1 ring-slate-100">
+              No rows match your search or filters.
+            </p>
+          ) : (
+            pagedRows.map((r) => (
+              <MobileRowCard
+                key={r.id}
+                title={r.customerName || '—'}
+                subtitle={r.date}
+                onClick={() => setDetailRow(r)}
+                fields={[
+                  { label: 'Bill #', value: r.billNumber ? `#${r.billNumber}` : '—' },
+                  { label: 'Amount', value: money(0) },
+                  { label: 'Free bags', value: totalFreeBags(r) },
+                  { label: 'Reason', value: r.reason || '—' },
+                ]}
+              />
+            ))
+          )}
+        </div>
+        <div className={`hidden sm:block ${scrollTableWrap}`}>
           <table className="w-full min-w-[800px] border-separate border-spacing-0 text-left text-sm">
             <thead className={stickyThead}>
               <tr className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                <th className="whitespace-nowrap px-4 py-3">Date</th>
+                <th className={`whitespace-nowrap px-4 py-3 ${stickyFirstTh}`}>Date</th>
                 <th className="px-4 py-3">Customer</th>
                 <th className="whitespace-nowrap px-4 py-3 font-mono">Bill #</th>
                 <th className="whitespace-nowrap px-4 py-3 text-right">Amount</th>
@@ -332,7 +363,7 @@ export default function PromotionsPage() {
               {loading ? (
                 <tr>
                   <td colSpan={5} className="px-4 py-10 text-center text-slate-500">
-                    Loading…
+                    <LoadingSpinner />
                   </td>
                 </tr>
               ) : rows.length === 0 ? (
@@ -354,7 +385,7 @@ export default function PromotionsPage() {
                     {...detailRowAttrs(() => setDetailRow(r), 'hover:bg-slate-50/80')}
                     aria-label={`Promotion ${r.customerName || ''}`}
                   >
-                    <td className="whitespace-nowrap px-4 py-3 tabular-nums">{r.date}</td>
+                    <td className={`whitespace-nowrap px-4 py-3 tabular-nums ${stickyFirstTd}`}>{r.date}</td>
                     <td className="px-4 py-3 font-medium text-slate-900">{r.customerName || '—'}</td>
                     <td className="whitespace-nowrap px-4 py-3 font-mono text-sm">
                       {r.billNumber ? `#${r.billNumber}` : '—'}
@@ -458,7 +489,7 @@ export default function PromotionsPage() {
               </label>
               <div>
                 <p className="text-sm font-medium text-slate-600">Free bags by brand</p>
-                <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
                   {BRANDS.map((b) => (
                     <label key={b.key} className="block text-xs font-medium text-slate-600">
                       {b.label}

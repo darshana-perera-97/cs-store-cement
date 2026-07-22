@@ -68,8 +68,8 @@ function AppRoutes() {
 
 export default function App() {
   return (
-    <div className="flex min-h-screen flex-col">
-      <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex min-h-screen min-w-0 flex-col overflow-x-hidden">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <AppRoutes />
       </div>
       <Footer />

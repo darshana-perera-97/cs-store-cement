@@ -3,12 +3,19 @@ import { getApiBase } from '../apiBase';
 import { getUsername } from '../auth';
 import { BRANDS } from './brandTheme';
 import {
+  LoadingSpinner,
+  MobileRowCard,
   TableFiltersBar,
   TablePaginationBar,
   filterControl,
+  filterLabel,
+  filterLabelNarrow,
   inDateRange,
+  mobileCardList,
   rowMatchesQuery,
   scrollTableWrap,
+  stickyFirstTd,
+  stickyFirstThTransparent,
   stickyTheadTransparent,
   useTablePagination,
   modalPanelClass,
@@ -91,8 +98,8 @@ function BillSaleFormFields({ form, customers, onChange }) {
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Bags &amp; unit price (LKR)</p>
         <div className="mt-3 space-y-3">
           {BRANDS.map((b) => (
-            <div key={b.key} className="grid grid-cols-2 items-end gap-2 sm:grid-cols-3">
-              <span className="col-span-2 text-sm font-medium text-slate-800 sm:col-span-1">{b.label}</span>
+            <div key={b.key} className="grid grid-cols-1 items-end gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              <span className="text-sm font-medium text-slate-800 sm:col-span-2 lg:col-span-1">{b.label}</span>
               <label className="text-xs text-slate-500">
                 Bags
                 <input
@@ -327,18 +334,11 @@ export default function BillsPage() {
   return (
     <div className="space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-sm text-slate-500">
-          Credit sales of cement bags (Tokyo, Samudra, Atlas, Nippon) to customers. The customer must exist on the{' '}
-          <span className="font-medium text-slate-700">Customers</span> page first. Unit price is per bag; total bill
-          is the sum of line amounts. Sold bags are counted against your overall stock (all loads combined): you cannot
-          sell more bags per brand than remain after earlier bills and promotions. Every bill also adds bag totals to{' '}
-          <span className="font-medium text-slate-700">Out</span> on the bill date in the daily ledger (
-          <span className="font-medium text-slate-700">Stock</span> page table).
-        </p>
+        <p className="text-sm text-slate-500">Record credit bag sales to customers and update stock.</p>
         <button
           type="button"
           onClick={openAdd}
-          className="inline-flex shrink-0 items-center justify-center rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/25 transition hover:brightness-[1.03]"
+          className="inline-flex w-full shrink-0 items-center justify-center rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/25 transition hover:brightness-[1.03] sm:w-auto"
         >
           Record credit sale
         </button>
@@ -357,7 +357,7 @@ export default function BillsPage() {
             : null
         }
       >
-        <label className="block min-w-[200px] flex-1 text-sm font-medium text-slate-600">
+        <label className={filterLabel}>
           Search
           <input
             type="search"
@@ -367,7 +367,7 @@ export default function BillsPage() {
             className={filterControl}
           />
         </label>
-        <label className="block min-w-[140px] text-sm font-medium text-slate-600">
+        <label className={filterLabelNarrow}>
           Stock ID
           <select
             value={stockFilter}
@@ -382,7 +382,7 @@ export default function BillsPage() {
             ))}
           </select>
         </label>
-        <label className="block min-w-[140px] text-sm font-medium text-slate-600">
+        <label className={filterLabelNarrow}>
           From date
           <input
             type="date"
@@ -391,7 +391,7 @@ export default function BillsPage() {
             className={filterControl}
           />
         </label>
-        <label className="block min-w-[140px] text-sm font-medium text-slate-600">
+        <label className={filterLabelNarrow}>
           To date
           <input
             type="date"
@@ -403,11 +403,51 @@ export default function BillsPage() {
       </TableFiltersBar>
 
       <div className="space-y-3">
-      <div className={scrollTableWrap}>
+      <div className={mobileCardList}>
+        {loading ? (
+          <p className="rounded-[20px] bg-white px-4 py-8 text-center text-sm text-slate-500 shadow-md ring-1 ring-slate-100">
+            <LoadingSpinner />
+          </p>
+        ) : rows.length === 0 ? (
+          <p className="rounded-[20px] bg-white px-4 py-8 text-center text-sm text-slate-500 shadow-md ring-1 ring-slate-100">
+            No credit bills yet. Use &quot;Record credit sale&quot; to add one.
+          </p>
+        ) : filteredRows.length === 0 ? (
+          <p className="rounded-[20px] bg-white px-4 py-8 text-center text-sm text-slate-500 shadow-md ring-1 ring-slate-100">
+            No bills match your search or filters.
+          </p>
+        ) : (
+          pagedRows.map((r) => (
+            <MobileRowCard
+              key={r.id}
+              title={r.customerName || '—'}
+              subtitle={r.date}
+              badge={
+                r.stockId ? (
+                  <span className="rounded-lg bg-slate-100 px-2 py-1 font-mono text-[10px] font-semibold text-slate-700">
+                    {r.stockId}
+                  </span>
+                ) : null
+              }
+              fields={[
+                ...BRANDS.slice(0, 4).map((b) => ({
+                  label: b.label,
+                  value: String(r[`${b.key}Bags`] ?? 0),
+                })),
+                { label: 'Total', value: money(r.totalAmount) },
+              ]}
+              onClick={() => setDetailBill(r)}
+            />
+          ))
+        )}
+      </div>
+      <div className={`hidden sm:block ${scrollTableWrap}`}>
         <table className="w-full min-w-[960px] border-separate border-spacing-0 text-left text-sm">
           <thead className={stickyTheadTransparent}>
             <tr className="border-b border-slate-200 text-xs font-semibold uppercase tracking-wide text-slate-500">
-              <th className="whitespace-nowrap bg-slate-50/95 px-3 py-3 align-bottom">Date</th>
+              <th className={`whitespace-nowrap bg-slate-50/95 px-3 py-3 align-bottom ${stickyFirstThTransparent}`}>
+                Date
+              </th>
               <th className="whitespace-nowrap bg-slate-50/95 px-3 py-3 align-bottom">Stock</th>
               <th className="whitespace-nowrap bg-slate-50/95 px-3 py-3 align-bottom">Customer</th>
               {BRANDS.map((b) => (
@@ -425,7 +465,7 @@ export default function BillsPage() {
             {loading ? (
               <tr>
                 <td colSpan={8} className="px-4 py-10 text-center text-slate-500">
-                  Loading…
+                  <LoadingSpinner />
                 </td>
               </tr>
             ) : rows.length === 0 ? (
@@ -449,7 +489,9 @@ export default function BillsPage() {
                     {...detailRowAttrs(() => setDetailBill(r))}
                     aria-label={`Credit bill ${r.customerName || ''}`}
                   >
-                    <td className={`whitespace-nowrap px-3 py-3 font-medium ${rowLine} bg-slate-50/70 tabular-nums`}>
+                    <td
+                      className={`whitespace-nowrap px-3 py-3 font-medium ${rowLine} bg-slate-50/70 tabular-nums ${stickyFirstTd}`}
+                    >
                       {r.date}
                     </td>
                     <td

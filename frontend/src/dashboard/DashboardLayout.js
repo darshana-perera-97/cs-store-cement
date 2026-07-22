@@ -2,8 +2,10 @@ import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { clearAuth, getToken, getUsername, isAdmin, isAuthed } from '../auth';
 import { getApiBase } from '../apiBase';
+import { shopNameInitials, useShopName } from '../shopConfig';
 import { DASHBOARD_NAV } from './navConfig';
 import { NavIcon } from './NavIcon';
+import { LoadingSpinner } from './tableToolbar';
 
 function formatLkr(n) {
   return new Intl.NumberFormat(undefined, {
@@ -128,7 +130,7 @@ function WhatsAppNavStatus({ enabled, state, connected }) {
     <NavLink
       to="/dashboard/messages"
       title={title}
-      className={`inline-flex items-center gap-2 rounded-full px-3 py-2 text-xs font-semibold ring-1 transition hover:opacity-90 ${tone}`}
+      className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1.5 text-xs font-semibold ring-1 transition hover:opacity-90 sm:gap-2 sm:px-3 sm:py-2 ${tone}`}
     >
       <span className="relative flex h-2 w-2 shrink-0">
         {connected ? (
@@ -137,7 +139,7 @@ function WhatsAppNavStatus({ enabled, state, connected }) {
         <span className={`relative inline-flex h-2 w-2 rounded-full ${dotTone}`} />
       </span>
       <span className="hidden sm:inline">WhatsApp</span>
-      <span className="tabular-nums">{label}</span>
+      <span className="max-w-[4.5rem] truncate tabular-nums sm:max-w-none">{label}</span>
     </NavLink>
   );
 }
@@ -145,6 +147,8 @@ function WhatsAppNavStatus({ enabled, state, connected }) {
 export default function DashboardLayout() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [sidebarCashSummary, setSidebarCashSummary] = useState(null);
+  const [sidebarStockSummary, setSidebarStockSummary] = useState(null);
+  const [sidebarStockLoading, setSidebarStockLoading] = useState(true);
   const [whatsappStatus, setWhatsappStatus] = useState({
     enabled: false,
     state: 'idle',
@@ -152,6 +156,7 @@ export default function DashboardLayout() {
   });
   const navigate = useNavigate();
   const location = useLocation();
+  const shopName = useShopName();
   const section = getSectionTitle(location.pathname);
   const headerTitle = section === 'Analytics' ? 'Main Dashboard' : section;
 
@@ -186,6 +191,34 @@ export default function DashboardLayout() {
     }
     load();
     const id = window.setInterval(load, 15000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, []);
+
+  useEffect(() => {
+    const apiRoot = getApiBase() || '';
+    let cancelled = false;
+    async function loadStock() {
+      try {
+        const res = await fetch(`${apiRoot}/api/stocks/summary`);
+        if (!cancelled && res.ok) {
+          const sum = await res.json();
+          setSidebarStockSummary({
+            brands: Array.isArray(sum.brands) ? sum.brands : [],
+          });
+        } else if (!cancelled) {
+          setSidebarStockSummary(null);
+        }
+      } catch {
+        if (!cancelled) setSidebarStockSummary(null);
+      } finally {
+        if (!cancelled) setSidebarStockLoading(false);
+      }
+    }
+    loadStock();
+    const id = window.setInterval(loadStock, 15000);
     return () => {
       cancelled = true;
       window.clearInterval(id);
@@ -257,10 +290,12 @@ export default function DashboardLayout() {
         <div className="flex shrink-0 items-center justify-between gap-2 px-2">
           <div className="flex items-center gap-2.5">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-600 to-violet-600 text-xs font-bold text-white shadow-md shadow-indigo-500/25">
-              CS
+              {shopNameInitials(shopName)}
             </div>
             <div className="min-w-0">
-              <p className="text-sm font-bold tracking-tight text-slate-900">CS STORE</p>
+              <p className="truncate text-sm font-bold tracking-tight text-slate-900" title={shopName}>
+                {shopName}
+              </p>
               <p className="mt-0.5 truncate text-xs font-medium text-slate-500" title={signedInName}>
                 {signedInName}
               </p>
@@ -268,7 +303,7 @@ export default function DashboardLayout() {
           </div>
           <button
             type="button"
-            className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 md:hidden"
+            className="flex h-11 w-11 items-center justify-center rounded-lg p-2 text-slate-500 hover:bg-slate-100 md:hidden"
             onClick={() => setMobileOpen(false)}
             aria-label="Close sidebar"
           >
@@ -278,73 +313,111 @@ export default function DashboardLayout() {
           </button>
         </div>
 
-        <nav
-          className="scrollbar-hide mt-8 flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto overscroll-contain px-1"
-          aria-label="Main"
-        >
-          {navItems.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.to !== '/dashboard/customers'}
-              onClick={() => setMobileOpen(false)}
-              className={({ isActive }) =>
-                `group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition ${
-                  isActive
-                    ? 'bg-indigo-50 text-indigo-700'
-                    : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-                }`
-              }
-            >
-              {({ isActive }) => (
-                <>
-                  {isActive ? (
-                    <span
-                      className="absolute right-0 top-1/2 h-7 w-1 -translate-y-1/2 rounded-l-full bg-indigo-600"
-                      aria-hidden
-                    />
-                  ) : null}
-                  <NavIcon name={item.icon} active={isActive} />
-                  <span className="relative z-10">{item.label}</span>
-                </>
-              )}
-            </NavLink>
-          ))}
-        </nav>
+        <div className="scrollbar-hide mt-8 flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain">
+          <nav className="flex flex-col gap-0.5 px-1" aria-label="Main">
+            {navItems.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                end={item.to !== '/dashboard/customers'}
+                onClick={() => setMobileOpen(false)}
+                className={({ isActive }) =>
+                  `group relative flex min-h-[44px] items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition ${
+                    isActive
+                      ? 'bg-indigo-50 text-indigo-700'
+                      : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                  }`
+                }
+              >
+                {({ isActive }) => (
+                  <>
+                    {isActive ? (
+                      <span
+                        className="absolute right-0 top-1/2 h-7 w-1 -translate-y-1/2 rounded-l-full bg-indigo-600"
+                        aria-hidden
+                      />
+                    ) : null}
+                    <NavIcon name={item.icon} active={isActive} />
+                    <span className="relative z-10">{item.label}</span>
+                  </>
+                )}
+              </NavLink>
+            ))}
+          </nav>
 
-        <div className="mt-4 shrink-0 space-y-3 border-t border-slate-100 pt-4">
-          <div
-            className={`rounded-2xl bg-gradient-to-br p-3 shadow-lg ring-1 ${overdueCardTint}`}
-            aria-live="polite"
-          >
-            <p
-              className={`text-[10px] font-medium uppercase tracking-wider ${OVERDUE_PRIORITY_LABEL[overduePriority]}`}
-            >
-              Overdue bills
-            </p>
-            <p
-              className={`mt-0.5 text-lg font-bold tabular-nums tracking-tight ${OVERDUE_PRIORITY_AMOUNT[overduePriority]}`}
-            >
-              {normalizedOverdue == null ? '—' : formatLkr2(normalizedOverdue.totalOutstanding)}
-            </p>
-            <p className={`text-[11px] leading-snug ${OVERDUE_PRIORITY_SUB[overduePriority]}`}>
-              {normalizedOverdue == null ? 'Loading…' : overduePriorityCopy(normalizedOverdue)}
-            </p>
-          </div>
-          <div className="flex items-center gap-3 rounded-2xl bg-slate-50/90 px-3 py-2.5 ring-1 ring-slate-100">
+          <div className="mt-4 space-y-3 border-t border-slate-100 pt-4">
+            <div className="rounded-2xl bg-white p-3 shadow-md ring-1 ring-slate-100">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                  Bag stock (live)
+                </p>
+                <span className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-600">
+                  <span className="relative flex h-1.5 w-1.5">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                    <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                  </span>
+                  Live
+                </span>
+              </div>
+              {sidebarStockLoading ? (
+                <div className="mt-2 flex justify-center py-1"><LoadingSpinner size="sm" className="text-xs text-slate-400" /></div>
+              ) : !sidebarStockSummary?.brands?.length ? (
+                <p className="mt-2 text-xs text-slate-500">No stock data.</p>
+              ) : (
+                <div className="mt-2 grid grid-cols-4 gap-1.5">
+                  {sidebarStockSummary.brands.map((b) => (
+                    <div
+                      key={b.key}
+                      className="min-w-0 rounded-xl bg-slate-50 px-1.5 py-2 text-center ring-1 ring-slate-100"
+                    >
+                      <p className="truncate text-[9px] font-semibold uppercase tracking-wide text-slate-500">
+                        {b.label}
+                      </p>
+                      <p className="mt-0.5 font-mono text-sm font-bold tabular-nums leading-none text-indigo-700">
+                        {Number(b.bags).toLocaleString()}
+                      </p>
+                      <p className="mt-0.5 text-[8px] font-medium text-slate-400">bags</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
             <div
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-200 to-violet-200 text-sm font-semibold text-indigo-900"
-              aria-hidden
+              className={`rounded-2xl bg-gradient-to-br p-3 shadow-lg ring-1 ${overdueCardTint}`}
+              aria-live="polite"
             >
-              {userInitial}
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold text-slate-900" title={signedInName}>
-                {signedInName}
+              <p
+                className={`text-[10px] font-medium uppercase tracking-wider ${OVERDUE_PRIORITY_LABEL[overduePriority]}`}
+              >
+                Overdue bills
               </p>
-              <p className="truncate text-xs text-slate-500">{roleLabel}</p>
+              <p
+                className={`mt-0.5 text-lg font-bold tabular-nums tracking-tight ${OVERDUE_PRIORITY_AMOUNT[overduePriority]}`}
+              >
+                {normalizedOverdue == null ? '—' : formatLkr2(normalizedOverdue.totalOutstanding)}
+              </p>
+              <p className={`text-[11px] leading-snug ${OVERDUE_PRIORITY_SUB[overduePriority]}`}>
+                {normalizedOverdue == null ? <LoadingSpinner size="sm" className="text-[11px]" /> : overduePriorityCopy(normalizedOverdue)}
+              </p>
+            </div>
+            <div className="flex items-center gap-3 rounded-2xl bg-slate-50/90 px-3 py-2.5 ring-1 ring-slate-100">
+              <div
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-200 to-violet-200 text-sm font-semibold text-indigo-900"
+                aria-hidden
+              >
+                {userInitial}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-semibold text-slate-900" title={signedInName}>
+                  {signedInName}
+                </p>
+                <p className="truncate text-xs text-slate-500">{roleLabel}</p>
+              </div>
             </div>
           </div>
+        </div>
+
+        <div className="mt-4 shrink-0 border-t border-slate-100 pt-4">
           <button
             type="button"
             onClick={signOut}
@@ -355,13 +428,13 @@ export default function DashboardLayout() {
         </div>
       </aside>
 
-      <div className="flex min-h-0 min-w-0 w-full flex-1 flex-col md:pl-[260px]">
-        <header className="sticky top-0 z-30 shrink-0 border-b border-white/50 bg-[#F4F7FE]/90 px-4 py-2.5 backdrop-blur-md sm:px-6 sm:py-3 lg:px-8">
-          <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
-            <div className="flex items-start gap-2.5 sm:items-center">
+      <div className="flex min-h-0 min-w-0 w-full flex-1 flex-col pt-[3.75rem] sm:pt-[4.5rem] md:pl-[260px] md:pt-0">
+        <header className="fixed inset-x-0 top-0 z-30 shrink-0 border-b border-white/50 bg-[#F4F7FE]/95 px-3 py-2 backdrop-blur-md sm:px-6 sm:py-3 md:sticky md:left-auto md:right-auto lg:px-8">
+          <div className="flex h-11 items-center justify-between gap-2 sm:h-auto sm:gap-3">
+            <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-2.5">
               <button
                 type="button"
-                className="shrink-0 rounded-xl border border-slate-200/80 bg-white p-2 text-slate-600 shadow-sm shadow-slate-200/50 md:hidden"
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200/80 bg-white text-slate-600 shadow-sm shadow-slate-200/50 md:hidden"
                 onClick={() => setMobileOpen(true)}
                 aria-label="Open menu"
               >
@@ -369,22 +442,22 @@ export default function DashboardLayout() {
                   <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
                 </svg>
               </button>
-              <div className="min-w-0 pt-0.5 md:pt-0">
-                <p className="text-[11px] font-medium leading-tight text-slate-400 sm:text-xs">
+              <div className="min-w-0 flex-1">
+                <p className="hidden truncate text-xs font-medium leading-tight text-slate-400 sm:block">
                   Dashboards / <span className="text-slate-600">Default</span>
                 </p>
-                <h1 className="mt-0 text-lg font-bold leading-tight tracking-tight text-slate-900 sm:text-xl">
+                <h1 className="truncate text-base font-bold leading-tight tracking-tight text-slate-900 sm:mt-0 sm:text-xl">
                   {headerTitle}
                 </h1>
               </div>
             </div>
-            <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+            <div className="flex shrink-0 items-center gap-1.5 sm:gap-3">
               <WhatsAppNavStatus
                 enabled={whatsappStatus.enabled}
                 state={whatsappStatus.state}
                 connected={whatsappStatus.connected}
               />
-              <div className="relative min-w-[200px] flex-1 sm:flex-initial sm:min-w-[220px]">
+              <div className="relative hidden min-w-0 sm:block sm:max-w-[14rem] md:max-w-[16rem] lg:max-w-[18rem]">
                 <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
                   <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
@@ -396,10 +469,10 @@ export default function DashboardLayout() {
                   className="w-full rounded-full border-0 bg-white py-2.5 pl-10 pr-4 text-sm text-slate-900 shadow-md shadow-slate-200/50 ring-1 ring-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
                 />
               </div>
-              <div className="flex items-center gap-1 rounded-full border border-slate-100 bg-white p-1 shadow-md shadow-slate-200/50">
+              <div className="flex items-center gap-0.5 rounded-full border border-slate-100 bg-white p-0.5 shadow-md shadow-slate-200/50 sm:gap-1 sm:p-1">
                 <button
                   type="button"
-                  className="rounded-full p-2 text-slate-500 transition hover:bg-slate-50 hover:text-slate-800"
+                  className="hidden h-10 w-10 items-center justify-center rounded-full text-slate-500 transition hover:bg-slate-50 hover:text-slate-800 sm:flex"
                   aria-label="Notifications"
                 >
                   <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -408,14 +481,14 @@ export default function DashboardLayout() {
                 </button>
                 <button
                   type="button"
-                  className="rounded-full p-2 text-slate-500 transition hover:bg-slate-50 hover:text-slate-800"
+                  className="hidden h-10 w-10 items-center justify-center rounded-full text-slate-500 transition hover:bg-slate-50 hover:text-slate-800 sm:flex"
                   aria-label="Info"
                 >
                   <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
                   </svg>
                 </button>
-                <div className="ml-0.5 flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-violet-600 text-xs font-bold text-white">
+                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-violet-600 text-[10px] font-bold text-white sm:ml-0.5 sm:h-9 sm:w-9 sm:text-xs">
                   A
                 </div>
               </div>
@@ -423,8 +496,8 @@ export default function DashboardLayout() {
           </div>
         </header>
 
-        <div className="flex min-h-0 flex-1 flex-col gap-5 px-4 pb-8 pt-3 sm:px-6 sm:pt-4 lg:px-8 lg:pb-10">
-          <main className="min-w-0 shrink-0 pr-1 lg:pr-[calc(300px+1.5rem)] xl:pr-[calc(320px+1.5rem)]">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-5 overflow-x-hidden px-4 pb-8 pt-3 sm:px-6 sm:pt-4 lg:px-8 lg:pb-10">
+          <main className="min-w-0 shrink-0 overflow-x-hidden pr-0 lg:pr-[calc(300px+1.5rem)] xl:pr-[calc(320px+1.5rem)]">
             <Outlet />
           </main>
           <RightPanel />
@@ -507,7 +580,7 @@ function RightPanel() {
 
   return (
     <aside
-      className="flex w-full min-h-0 flex-col gap-5 overflow-y-auto overscroll-y-contain pb-2 max-lg:h-full max-lg:min-h-0 max-lg:flex-1 max-lg:shrink lg:fixed lg:bottom-0 lg:right-0 lg:top-[4.75rem] lg:z-20 lg:w-[300px] lg:max-w-none lg:border-l lg:border-slate-200/70 lg:bg-[#F4F7FE]/95 lg:px-4 lg:py-4 lg:pb-6 lg:backdrop-blur-md lg:scrollbar-hide xl:w-[320px]"
+      className="hidden w-full min-h-0 flex-col gap-5 overflow-y-auto overscroll-y-contain pb-2 lg:fixed lg:bottom-0 lg:right-0 lg:top-[4.75rem] lg:z-20 lg:flex lg:w-[300px] lg:max-w-none lg:border-l lg:border-slate-200/70 lg:bg-[#F4F7FE]/95 lg:px-4 lg:py-4 lg:pb-6 lg:backdrop-blur-md lg:scrollbar-hide xl:w-[320px]"
       aria-label="Account and activity"
     >
       <div className="flex shrink-0 flex-col overflow-hidden rounded-[20px] bg-gradient-to-br from-violet-600 via-fuchsia-500 to-orange-400 p-5 text-white shadow-xl shadow-fuchsia-500/20 ring-1 ring-white/20">
@@ -545,7 +618,7 @@ function RightPanel() {
         </div>
         <p className="mt-0.5 text-xs text-slate-500">Total bags on hand across all loads</p>
         {stockLoading ? (
-          <p className="mt-4 text-sm text-slate-400">Loading stock…</p>
+          <div className="mt-4 flex justify-center"><LoadingSpinner label="Loading stock…" size="sm" className="text-slate-400" /></div>
         ) : stockError ? (
           <p className="mt-4 text-sm text-rose-600">{stockError}</p>
         ) : (
@@ -571,7 +644,7 @@ function RightPanel() {
           <p className="mt-2 text-xs text-amber-700">{activityError}</p>
         ) : null}
         {stockLoading ? (
-          <p className="mt-4 text-sm text-slate-400">Loading…</p>
+          <div className="mt-4 flex justify-center"><LoadingSpinner size="sm" className="text-slate-400" /></div>
         ) : recentActivities.length === 0 ? (
           <p className="mt-4 text-sm text-slate-500">
             {activityError ? (

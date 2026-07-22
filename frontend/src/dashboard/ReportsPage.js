@@ -2,10 +2,15 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { getApiBase } from '../apiBase';
 import { BRANDS } from './brandTheme';
 import {
+  LoadingSpinner,
+  MobileRowCard,
   TableFiltersBar,
   filterControl,
+  filterLabelNarrow,
   inDateRange,
   scrollTableWrap,
+  stickyFirstTd,
+  stickyFirstTh,
   stickyThead,
 } from './tableToolbar';
 import { buildChequeTableRows, chequePortion } from './paymentCheques';
@@ -1451,20 +1456,15 @@ export default function ReportsPage() {
     <div className="space-y-5">
       <div className="rounded-[20px] bg-white p-5 shadow-lg shadow-slate-200/40 ring-1 ring-slate-100 sm:p-6">
         <h1 className="text-lg font-bold text-slate-900">Reports</h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Review monthly bills with settlement times, stock distribution by month, a financial summary of loads
-          purchased, cash in, and converting cheques, download today&apos;s customer outstanding balances, a monthly
-          loads summary with per-shop sales and cash in, or generate weekly, monthly, and custom-period reports for
-          cement bags, credit sales, bank deposits, and pending cheques.
-        </p>
+        <p className="mt-1 text-sm text-slate-500">Monthly summaries, balances, and downloadable reports.</p>
       </div>
 
       <Card
         title="Bills by month"
         subtitle={`All credit bills in ${billsMonthLabel} — settled date from payments (oldest bills first)`}
       >
-        <div className="flex flex-wrap items-end gap-3">
-          <label className="block min-w-[160px] text-sm font-medium text-slate-600">
+        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+          <label className={filterLabelNarrow}>
             Month
             <input
               type="month"
@@ -1483,11 +1483,38 @@ export default function ReportsPage() {
           </button>
         </div>
 
-        <div className={`mt-5 ${scrollTableWrap}`}>
+        <div className="mt-5 hidden">
+          {loading ? (
+            <p className="rounded-[20px] bg-white px-4 py-8 text-center text-sm text-slate-500 shadow-md ring-1 ring-slate-100">
+              <LoadingSpinner />
+            </p>
+          ) : monthlyBillRows.length === 0 ? (
+            <p className="rounded-[20px] bg-white px-4 py-8 text-center text-sm text-slate-500 shadow-md ring-1 ring-slate-100">
+              No credit bills in {billsMonthLabel}.
+            </p>
+          ) : (
+            monthlyBillRows.map((r) => (
+              <MobileRowCard
+                key={r.rowKey}
+                title={r.shop}
+                subtitle={r.date}
+                badge={r.bagType !== '—' ? r.bagType : null}
+                fields={[
+                  { label: 'Bags', value: r.bagCount.toLocaleString() },
+                  { label: 'Amount', value: money(r.amount) },
+                  { label: 'Settled', value: r.settledDate || '—' },
+                  { label: 'Days', value: r.daysToSettle != null ? r.daysToSettle : '—' },
+                ]}
+              />
+            ))
+          )}
+        </div>
+
+        <div className={`mt-5 hidden sm:block ${scrollTableWrap}`}>
           <table className="w-full min-w-[900px] border-separate border-spacing-0 text-left text-sm">
             <thead className={stickyThead}>
               <tr className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                <th className="whitespace-nowrap px-4 py-3">Date</th>
+                <th className={`whitespace-nowrap px-4 py-3 ${stickyFirstTh}`}>Date</th>
                 <th className="whitespace-nowrap px-4 py-3">Shop name</th>
                 <th className="whitespace-nowrap px-4 py-3">Bag type</th>
                 <th className="whitespace-nowrap px-4 py-3 text-right">Bag count</th>
@@ -1500,7 +1527,7 @@ export default function ReportsPage() {
               {loading ? (
                 <tr>
                   <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
-                    Loading…
+                    <LoadingSpinner />
                   </td>
                 </tr>
               ) : monthlyBillRows.length === 0 ? (
@@ -1514,7 +1541,7 @@ export default function ReportsPage() {
                   const brand = BRANDS.find((b) => b.key === r.brandKey);
                   return (
                     <tr key={r.rowKey} className="border-t border-slate-100 hover:bg-slate-50/80">
-                      <td className="whitespace-nowrap px-4 py-3 tabular-nums text-slate-600">{r.date}</td>
+                      <td className={`whitespace-nowrap px-4 py-3 tabular-nums text-slate-600 ${stickyFirstTd}`}>{r.date}</td>
                       <td className="whitespace-nowrap px-4 py-3 font-medium text-slate-900">{r.shop}</td>
                       <td className="whitespace-nowrap px-4 py-3">
                         {r.bagType !== '—' ? (
@@ -1572,8 +1599,8 @@ export default function ReportsPage() {
           stockDistActiveBrand ? ` · ${stockDistActiveBrand.label}` : ' · all brands'
         }${stockDistMonthPurchasesOnly ? ' · stocks purchased this month only' : ''} — rows grouped by stock`}
       >
-        <div className="flex flex-wrap items-end gap-3">
-          <label className="block min-w-[160px] text-sm font-medium text-slate-600">
+        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+          <label className={filterLabelNarrow}>
             Month
             <input
               type="month"
@@ -1582,7 +1609,7 @@ export default function ReportsPage() {
               className={filterControl}
             />
           </label>
-          <label className="block min-w-[160px] text-sm font-medium text-slate-600">
+          <label className={filterLabelNarrow}>
             Brand
             <select
               value={stockDistBrand}
@@ -1616,7 +1643,7 @@ export default function ReportsPage() {
           </button>
         </div>
 
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mt-4 hidden gap-3 sm:grid sm:grid-cols-2 lg:grid-cols-4">
           <div className="rounded-xl bg-slate-50 p-4 ring-1 ring-slate-200">
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
               Remaining from last month
@@ -1661,11 +1688,50 @@ export default function ReportsPage() {
           </div>
         </div>
 
-        <div className={`mt-5 ${scrollTableWrap}`}>
+        <div className="mt-5 hidden">
+          {loading ? (
+            <p className="rounded-[20px] bg-white px-4 py-8 text-center text-sm text-slate-500 shadow-md ring-1 ring-slate-100">
+              <LoadingSpinner />
+            </p>
+          ) : stockDistGroups.length === 0 ? (
+            <p className="rounded-[20px] bg-white px-4 py-8 text-center text-sm text-slate-500 shadow-md ring-1 ring-slate-100">
+              No shop distributions in {stockDistMonthLabel}
+              {stockDistActiveBrand ? ` for ${stockDistActiveBrand.label}` : ''}
+              {stockDistMonthPurchasesOnly ? ' from stocks purchased this month' : ''}.
+            </p>
+          ) : (
+            stockDistGroups.flatMap((g) => [
+              ...g.rows.map((r) => (
+                <MobileRowCard
+                  key={r.rowKey}
+                  title={r.stockId}
+                  subtitle={`${r.date} · ${r.shop}`}
+                  badge={r.bagType}
+                  fields={[
+                    { label: 'Bags', value: r.bags.toLocaleString() },
+                    { label: 'Per bag', value: r.perBagPrice != null ? money(r.perBagPrice) : '—' },
+                    { label: 'Total', value: money(r.totalAmount) },
+                  ]}
+                />
+              )),
+              <MobileRowCard
+                key={`${g.stockId}-subtotal`}
+                title={`Stock ${g.stockId} total`}
+                subtitle={g.purchaseDate ? `Purchased ${g.purchaseDate}` : undefined}
+                fields={[
+                  { label: 'Bags', value: g.bags.toLocaleString() },
+                  { label: 'Total', value: money(g.totalAmount) },
+                ]}
+              />,
+            ])
+          )}
+        </div>
+
+        <div className={`mt-5 hidden sm:block ${scrollTableWrap}`}>
           <table className="w-full min-w-[780px] border-separate border-spacing-0 text-left text-sm">
             <thead className={stickyThead}>
               <tr className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                <th className="whitespace-nowrap px-4 py-3">StockID</th>
+                <th className={`whitespace-nowrap px-4 py-3 ${stickyFirstTh}`}>StockID</th>
                 <th className="whitespace-nowrap px-4 py-3">Date</th>
                 <th className="whitespace-nowrap px-4 py-3">Shop name</th>
                 <th className="whitespace-nowrap px-4 py-3">Bag type</th>
@@ -1678,7 +1744,7 @@ export default function ReportsPage() {
               {loading ? (
                 <tr>
                   <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
-                    Loading…
+                    <LoadingSpinner />
                   </td>
                 </tr>
               ) : stockDistGroups.length === 0 ? (
@@ -1698,7 +1764,7 @@ export default function ReportsPage() {
                         key={r.rowKey}
                         className="border-t border-slate-100 hover:bg-slate-50/80"
                       >
-                        <td className="whitespace-nowrap px-4 py-3 font-medium text-slate-900">
+                        <td className={`whitespace-nowrap px-4 py-3 font-medium text-slate-900 ${stickyFirstTd}`}>
                           {r.stockId}
                         </td>
                         <td className="whitespace-nowrap px-4 py-3 tabular-nums text-slate-600">
@@ -1773,8 +1839,8 @@ export default function ReportsPage() {
         title="Total loads summary"
         subtitle={`Bags brought in during ${loadsSummaryMonthLabel} — credit invoices that month with days from bill date, outstanding | total per shop`}
       >
-        <div className="flex flex-wrap items-end gap-3">
-          <label className="block min-w-[160px] text-sm font-medium text-slate-600">
+        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+          <label className={filterLabelNarrow}>
             Month
             <input
               type="month"
@@ -1793,7 +1859,7 @@ export default function ReportsPage() {
           </button>
         </div>
 
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="mt-4 hidden gap-3 sm:grid sm:grid-cols-2 lg:grid-cols-3">
           <div className="rounded-xl bg-slate-800 p-4 text-white shadow-md ring-1 ring-slate-700">
             <p className="text-xs font-semibold uppercase tracking-wide text-white/85">Bags from loads</p>
             <p className="mt-1 text-2xl font-bold tabular-nums">{monthLoadsReport.total.toLocaleString()}</p>
@@ -1825,11 +1891,46 @@ export default function ReportsPage() {
           </div>
         </div>
 
-        <div className={`mt-5 ${scrollTableWrap}`}>
+        <div className="mt-5 hidden">
+          {loading ? (
+            <p className="rounded-[20px] bg-white px-4 py-8 text-center text-sm text-slate-500 shadow-md ring-1 ring-slate-100">
+              <LoadingSpinner />
+            </p>
+          ) : monthInvoiceGroups.length === 0 ? (
+            <p className="rounded-[20px] bg-white px-4 py-8 text-center text-sm text-slate-500 shadow-md ring-1 ring-slate-100">
+              No credit invoices in {loadsSummaryMonthLabel}.
+            </p>
+          ) : (
+            monthInvoiceGroups.flatMap((g) => [
+              ...g.invoices.map((inv, idx) => (
+                <MobileRowCard
+                  key={`${g.shop}-${inv.invoiceDate}-${idx}`}
+                  title={inv.shop}
+                  subtitle={inv.invoiceDate}
+                  fields={[
+                    { label: 'Days', value: inv.daysFromBillDate },
+                    { label: 'Amount', value: money(inv.amount) },
+                  ]}
+                />
+              )),
+              <MobileRowCard
+                key={`${g.shop}-subtotal`}
+                title={g.shop}
+                subtitle="Outstanding | Total"
+                fields={[
+                  { label: 'Outstanding', value: money(g.outstanding) },
+                  { label: 'Total', value: money(g.totalAmount) },
+                ]}
+              />,
+            ])
+          )}
+        </div>
+
+        <div className={`mt-5 hidden sm:block ${scrollTableWrap}`}>
           <table className="w-full min-w-[640px] border-separate border-spacing-0 text-left text-sm">
             <thead className={stickyThead}>
               <tr className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                <th className="whitespace-nowrap px-4 py-3">Shop name</th>
+                <th className={`whitespace-nowrap px-4 py-3 ${stickyFirstTh}`}>Shop name</th>
                 <th className="whitespace-nowrap px-4 py-3">Invoice date</th>
                 <th className="whitespace-nowrap px-4 py-3 text-right">Days from bill date</th>
                 <th className="whitespace-nowrap px-4 py-3 text-right">Amount</th>
@@ -1839,7 +1940,7 @@ export default function ReportsPage() {
               {loading ? (
                 <tr>
                   <td colSpan={4} className="px-4 py-8 text-center text-slate-500">
-                    Loading…
+                    <LoadingSpinner />
                   </td>
                 </tr>
               ) : monthInvoiceGroups.length === 0 ? (
@@ -1855,7 +1956,7 @@ export default function ReportsPage() {
                       key={`${g.shop}-${inv.invoiceDate}-${idx}`}
                       className="border-t border-slate-100 hover:bg-slate-50/80"
                     >
-                      <td className="whitespace-nowrap px-4 py-3 font-medium text-slate-900">{inv.shop}</td>
+                      <td className={`whitespace-nowrap px-4 py-3 font-medium text-slate-900 ${stickyFirstTd}`}>{inv.shop}</td>
                       <td className="whitespace-nowrap px-4 py-3 tabular-nums text-slate-600">
                         {inv.invoiceDate}
                       </td>
@@ -1871,7 +1972,7 @@ export default function ReportsPage() {
                     key={`${g.shop}-subtotal`}
                     className="border-t border-slate-200 bg-slate-50/90 font-semibold text-slate-900"
                   >
-                    <td className="px-4 py-3">{g.shop}</td>
+                    <td className={`px-4 py-3 ${stickyFirstTd}`}>{g.shop}</td>
                     <td className="px-4 py-3 text-slate-600" colSpan={2}>
                       Outstanding | Total
                     </td>
@@ -1885,7 +1986,7 @@ export default function ReportsPage() {
             {!loading && monthInvoiceGroups.length > 0 ? (
               <tfoot>
                 <tr className="border-t-2 border-slate-200 bg-indigo-50/60 font-semibold text-slate-900">
-                  <td className="px-4 py-3">Grand total</td>
+                  <td className={`px-4 py-3 ${stickyFirstTd}`}>Grand total</td>
                   <td className="px-4 py-3 text-slate-600" colSpan={2}>
                     Outstanding | Total
                   </td>
@@ -1905,7 +2006,7 @@ export default function ReportsPage() {
         subtitle={`Loads purchased, cash in from shops, and cheques to convert — ${fsPeriodLabel}`}
       >
         <div className="flex flex-col gap-3">
-          <div className="flex flex-wrap items-end gap-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
             <div className="flex flex-col gap-2">
               <span className="text-sm font-medium text-slate-600">Period</span>
               <div className="inline-flex rounded-xl bg-slate-100/90 p-1 ring-1 ring-slate-200/60">
@@ -1934,7 +2035,7 @@ export default function ReportsPage() {
             </div>
 
             {fsPeriodMode === 'weekly' ? (
-              <label className="block min-w-[160px] text-sm font-medium text-slate-600">
+              <label className={filterLabelNarrow}>
                 Week
                 <input
                   type="week"
@@ -1946,7 +2047,7 @@ export default function ReportsPage() {
             ) : null}
 
             {fsPeriodMode === 'monthly' ? (
-              <label className="block min-w-[160px] text-sm font-medium text-slate-600">
+              <label className={filterLabelNarrow}>
                 Month
                 <input
                   type="month"
@@ -1959,7 +2060,7 @@ export default function ReportsPage() {
 
             {fsPeriodMode === 'custom' ? (
               <>
-                <label className="block min-w-[140px] text-sm font-medium text-slate-600">
+                <label className={filterLabelNarrow}>
                   From date
                   <input
                     type="date"
@@ -1968,7 +2069,7 @@ export default function ReportsPage() {
                     className={filterControl}
                   />
                 </label>
-                <label className="block min-w-[140px] text-sm font-medium text-slate-600">
+                <label className={filterLabelNarrow}>
                   To date
                   <input
                     type="date"
@@ -1999,7 +2100,7 @@ export default function ReportsPage() {
             </button>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="hidden gap-3 sm:grid sm:grid-cols-3">
             <div className="rounded-xl bg-amber-50 p-4 ring-1 ring-amber-100">
               <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">Loads purchased</p>
               <p className="mt-1 text-xl font-bold tabular-nums text-amber-900">
@@ -2030,17 +2131,43 @@ export default function ReportsPage() {
           </div>
         </div>
 
-        <div className="mt-6 space-y-6">
+        <div className="mt-6 hidden space-y-6 sm:block">
           <div>
             <h3 className="text-sm font-semibold text-slate-800">1. All loads purchased</h3>
             <p className="mt-0.5 text-xs text-slate-500">
               Stock loads in the period — date, vehicle, cheque, invoice, bag type, bags, and cost
             </p>
-            <div className={`mt-3 ${scrollTableWrap}`}>
+            <div className="mt-3 hidden">
+              {loading ? (
+                <p className="rounded-[20px] bg-white px-4 py-8 text-center text-sm text-slate-500 shadow-md ring-1 ring-slate-100">
+                  <LoadingSpinner />
+                </p>
+              ) : financialLoadRows.length === 0 ? (
+                <p className="rounded-[20px] bg-white px-4 py-8 text-center text-sm text-slate-500 shadow-md ring-1 ring-slate-100">
+                  No loads purchased in {fsPeriodLabel}.
+                </p>
+              ) : (
+                financialLoadRows.map((r) => (
+                  <MobileRowCard
+                    key={r.rowKey}
+                    title={r.vehicle}
+                    subtitle={r.date}
+                    badge={r.bagType}
+                    fields={[
+                      { label: 'Invoice', value: r.invoiceNumber },
+                      { label: 'Cheque', value: r.chequeNumber },
+                      { label: 'Bags', value: r.bags.toLocaleString() },
+                      { label: 'Cost', value: money(r.totalCost) },
+                    ]}
+                  />
+                ))
+              )}
+            </div>
+            <div className={`mt-3 hidden sm:block ${scrollTableWrap}`}>
               <table className="w-full min-w-[880px] border-separate border-spacing-0 text-left text-sm">
                 <thead className={stickyThead}>
                   <tr className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    <th className="whitespace-nowrap px-4 py-3">Date</th>
+                    <th className={`whitespace-nowrap px-4 py-3 ${stickyFirstTh}`}>Date</th>
                     <th className="whitespace-nowrap px-4 py-3">Vehicle</th>
                     <th className="whitespace-nowrap px-4 py-3">Cheque number</th>
                     <th className="whitespace-nowrap px-4 py-3">Invoice number</th>
@@ -2053,7 +2180,7 @@ export default function ReportsPage() {
                   {loading ? (
                     <tr>
                       <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
-                        Loading…
+                        <LoadingSpinner />
                       </td>
                     </tr>
                   ) : financialLoadRows.length === 0 ? (
@@ -2065,7 +2192,7 @@ export default function ReportsPage() {
                   ) : (
                     financialLoadRows.map((r) => (
                       <tr key={r.rowKey} className="border-t border-slate-100 hover:bg-slate-50/80">
-                        <td className="whitespace-nowrap px-4 py-3 tabular-nums text-slate-600">{r.date}</td>
+                        <td className={`whitespace-nowrap px-4 py-3 tabular-nums text-slate-600 ${stickyFirstTd}`}>{r.date}</td>
                         <td className="whitespace-nowrap px-4 py-3 font-medium text-slate-900">{r.vehicle}</td>
                         <td className="whitespace-nowrap px-4 py-3 tabular-nums text-slate-600">
                           {r.chequeNumber}
@@ -2105,11 +2232,39 @@ export default function ReportsPage() {
             <p className="mt-0.5 text-xs text-slate-500">
               Cash and cheques from shops — cheque number, date, and amount shown under each row when present
             </p>
-            <div className={`mt-3 ${scrollTableWrap}`}>
+            <div className="mt-3 hidden">
+              {loading ? (
+                <p className="rounded-[20px] bg-white px-4 py-8 text-center text-sm text-slate-500 shadow-md ring-1 ring-slate-100">
+                  <LoadingSpinner />
+                </p>
+              ) : financialCashInRows.length === 0 ? (
+                <p className="rounded-[20px] bg-white px-4 py-8 text-center text-sm text-slate-500 shadow-md ring-1 ring-slate-100">
+                  No cash in recorded for {fsPeriodLabel}.
+                </p>
+              ) : (
+                financialCashInRows.map((r) => (
+                  <MobileRowCard
+                    key={r.rowKey}
+                    title={r.shop}
+                    subtitle={r.date}
+                    fields={[
+                      { label: 'Bill #', value: r.billNumber },
+                      { label: 'Cash', value: r.cashAmount > 0 ? money(r.cashAmount) : '—' },
+                      { label: 'Cheque', value: r.chequeAmount > 0 ? money(r.chequeAmount) : '—' },
+                      { label: 'Total', value: money(r.total) },
+                      ...(r.chequeDetails
+                        ? [{ label: 'Cheques', value: r.chequeDetails }]
+                        : []),
+                    ]}
+                  />
+                ))
+              )}
+            </div>
+            <div className={`mt-3 hidden sm:block ${scrollTableWrap}`}>
               <table className="w-full min-w-[800px] border-separate border-spacing-0 text-left text-sm">
                 <thead className={stickyThead}>
                   <tr className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    <th className="whitespace-nowrap px-4 py-3">Date</th>
+                    <th className={`whitespace-nowrap px-4 py-3 ${stickyFirstTh}`}>Date</th>
                     <th className="whitespace-nowrap px-4 py-3">Shop</th>
                     <th className="whitespace-nowrap px-4 py-3">Bill number</th>
                     <th className="whitespace-nowrap px-4 py-3 text-right">Cash amount</th>
@@ -2121,7 +2276,7 @@ export default function ReportsPage() {
                   {loading ? (
                     <tr>
                       <td colSpan={6} className="px-4 py-8 text-center text-slate-500">
-                        Loading…
+                        <LoadingSpinner />
                       </td>
                     </tr>
                   ) : financialCashInRows.length === 0 ? (
@@ -2134,7 +2289,7 @@ export default function ReportsPage() {
                     financialCashInRows.flatMap((r) => {
                       const main = (
                         <tr key={r.rowKey} className="border-t border-slate-100 hover:bg-slate-50/80">
-                          <td className="whitespace-nowrap px-4 py-3 tabular-nums text-slate-600">{r.date}</td>
+                          <td className={`whitespace-nowrap px-4 py-3 tabular-nums text-slate-600 ${stickyFirstTd}`}>{r.date}</td>
                           <td className="px-4 py-3 font-medium text-slate-900">{r.shop}</td>
                           <td className="whitespace-nowrap px-4 py-3 tabular-nums text-slate-600">
                             {r.billNumber}
@@ -2189,11 +2344,36 @@ export default function ReportsPage() {
             <p className="mt-0.5 text-xs text-slate-500">
               Shop cheques with issue date in the selected period
             </p>
-            <div className={`mt-3 ${scrollTableWrap}`}>
+            <div className="mt-3 hidden">
+              {loading ? (
+                <p className="rounded-[20px] bg-white px-4 py-8 text-center text-sm text-slate-500 shadow-md ring-1 ring-slate-100">
+                  <LoadingSpinner />
+                </p>
+              ) : financialConvertingRows.length === 0 ? (
+                <p className="rounded-[20px] bg-white px-4 py-8 text-center text-sm text-slate-500 shadow-md ring-1 ring-slate-100">
+                  No cheques with an issue date in {fsPeriodLabel}.
+                </p>
+              ) : (
+                financialConvertingRows.map((r) => (
+                  <MobileRowCard
+                    key={r.rowKey}
+                    title={r.chequeNumber}
+                    subtitle={r.date}
+                    fields={[
+                      { label: 'Issue date', value: r.issueDate },
+                      { label: 'Bill #', value: r.billNumber },
+                      { label: 'Customer', value: r.customer },
+                      { label: 'Amount', value: money(r.amount) },
+                    ]}
+                  />
+                ))
+              )}
+            </div>
+            <div className={`mt-3 hidden sm:block ${scrollTableWrap}`}>
               <table className="w-full min-w-[800px] border-separate border-spacing-0 text-left text-sm">
                 <thead className={stickyThead}>
                   <tr className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    <th className="whitespace-nowrap px-4 py-3">Date</th>
+                    <th className={`whitespace-nowrap px-4 py-3 ${stickyFirstTh}`}>Date</th>
                     <th className="whitespace-nowrap px-4 py-3">Cheque number</th>
                     <th className="whitespace-nowrap px-4 py-3">Issue date</th>
                     <th className="whitespace-nowrap px-4 py-3">Bill number</th>
@@ -2205,7 +2385,7 @@ export default function ReportsPage() {
                   {loading ? (
                     <tr>
                       <td colSpan={6} className="px-4 py-8 text-center text-slate-500">
-                        Loading…
+                        <LoadingSpinner />
                       </td>
                     </tr>
                   ) : financialConvertingRows.length === 0 ? (
@@ -2217,7 +2397,7 @@ export default function ReportsPage() {
                   ) : (
                     financialConvertingRows.map((r) => (
                       <tr key={r.rowKey} className="border-t border-slate-100 hover:bg-slate-50/80">
-                        <td className="whitespace-nowrap px-4 py-3 tabular-nums text-slate-600">{r.date}</td>
+                        <td className={`whitespace-nowrap px-4 py-3 tabular-nums text-slate-600 ${stickyFirstTd}`}>{r.date}</td>
                         <td className="whitespace-nowrap px-4 py-3 font-medium tabular-nums text-slate-900">
                           {r.chequeNumber}
                         </td>
@@ -2257,7 +2437,7 @@ export default function ReportsPage() {
         title="Customer outstanding (today)"
         subtitle={`Snapshot as of ${todayYmd} — all customers with current balance owed or credit on account`}
       >
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="hidden gap-3 sm:grid sm:grid-cols-3">
           <div className="rounded-xl bg-indigo-50 p-4 ring-1 ring-indigo-100">
             <p className="text-xs font-semibold uppercase tracking-wide text-indigo-700">Total outstanding</p>
             <p className="mt-1 text-xl font-bold tabular-nums text-indigo-900">
@@ -2291,11 +2471,36 @@ export default function ReportsPage() {
           Download outstanding (PDF + Excel)
         </button>
 
-        <div className={`mt-5 ${scrollTableWrap}`}>
+        <div className="mt-5 hidden">
+          {loading ? (
+            <p className="rounded-[20px] bg-white px-4 py-8 text-center text-sm text-slate-500 shadow-md ring-1 ring-slate-100">
+              <LoadingSpinner label="Loading customer balances…" />
+            </p>
+          ) : outstandingRows.length === 0 ? (
+            <p className="rounded-[20px] bg-white px-4 py-8 text-center text-sm text-slate-500 shadow-md ring-1 ring-slate-100">
+              No customers with an outstanding balance or credit on account.
+            </p>
+          ) : (
+            outstandingRows.map((r) => (
+              <MobileRowCard
+                key={r.id}
+                title={r.name}
+                subtitle={r.location || '—'}
+                fields={[
+                  { label: 'Due date', value: r.dueDate },
+                  { label: 'Outstanding', value: r.outstanding > 0 ? money(r.outstanding) : '—' },
+                  { label: 'Credit', value: r.credit > 0 ? money(r.credit) : '—' },
+                ]}
+              />
+            ))
+          )}
+        </div>
+
+        <div className={`mt-5 hidden sm:block ${scrollTableWrap}`}>
           <table className="w-full min-w-[720px] border-separate border-spacing-0 text-left text-sm">
             <thead className={stickyThead}>
               <tr className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                <th className="px-4 py-3">Shop</th>
+                <th className={`px-4 py-3 ${stickyFirstTh}`}>Shop</th>
                 <th className="px-4 py-3">Location</th>
                 <th className="whitespace-nowrap px-4 py-3">Due date</th>
                 <th className="whitespace-nowrap px-4 py-3 text-right">Outstanding</th>
@@ -2306,7 +2511,7 @@ export default function ReportsPage() {
               {loading ? (
                 <tr>
                   <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
-                    Loading customer balances…
+                    <LoadingSpinner label="Loading customer balances…" />
                   </td>
                 </tr>
               ) : outstandingRows.length === 0 ? (
@@ -2318,7 +2523,7 @@ export default function ReportsPage() {
               ) : (
                 outstandingRows.map((r) => (
                   <tr key={r.id} className="border-t border-slate-100 hover:bg-slate-50/80">
-                    <td className="px-4 py-3 font-medium text-slate-900">{r.name}</td>
+                    <td className={`px-4 py-3 font-medium text-slate-900 ${stickyFirstTd}`}>{r.name}</td>
                     <td className="px-4 py-3 text-slate-600">{r.location || '—'}</td>
                     <td className="whitespace-nowrap px-4 py-3 tabular-nums text-slate-600">{r.dueDate}</td>
                     <td className="whitespace-nowrap px-4 py-3 text-right font-semibold tabular-nums text-indigo-800">
@@ -2379,7 +2584,7 @@ export default function ReportsPage() {
         </div>
 
         {periodMode === 'weekly' ? (
-          <label className="block min-w-[160px] text-sm font-medium text-slate-600">
+          <label className={filterLabelNarrow}>
             Week
             <input
               type="week"
@@ -2391,7 +2596,7 @@ export default function ReportsPage() {
         ) : null}
 
         {periodMode === 'monthly' ? (
-          <label className="block min-w-[160px] text-sm font-medium text-slate-600">
+          <label className={filterLabelNarrow}>
             Month
             <input
               type="month"
@@ -2404,7 +2609,7 @@ export default function ReportsPage() {
 
         {periodMode === 'custom' ? (
           <>
-            <label className="block min-w-[140px] text-sm font-medium text-slate-600">
+            <label className={filterLabelNarrow}>
               From date
               <input
                 type="date"
@@ -2413,7 +2618,7 @@ export default function ReportsPage() {
                 className={filterControl}
               />
             </label>
-            <label className="block min-w-[140px] text-sm font-medium text-slate-600">
+            <label className={filterLabelNarrow}>
               To date
               <input
                 type="date"
@@ -2434,7 +2639,7 @@ export default function ReportsPage() {
           </>
         ) : null}
 
-        <label className="block min-w-[160px] text-sm font-medium text-slate-600">
+        <label className={filterLabelNarrow}>
           Brand
           <select value={brandFilter} onChange={(e) => setBrandFilter(e.target.value)} className={filterControl}>
             <option value="">All brands</option>
@@ -2472,8 +2677,11 @@ export default function ReportsPage() {
         </p>
       ) : null}
 
+      <div className="hidden space-y-5 sm:block">
       {loading ? (
-        <p className="text-sm text-slate-500">Loading report data…</p>
+        <div className="flex justify-center py-16">
+          <LoadingSpinner size="lg" label="Loading report data…" />
+        </div>
       ) : (
         <>
           <Card
@@ -2492,11 +2700,36 @@ export default function ReportsPage() {
             title="Cement bags per shop"
             subtitle={`Credit bill bags sold to each customer in the selected period${activeBrand ? ` (${activeBrand.label} only)` : ''}`}
           >
-            <div className={scrollTableWrap}>
+            <div className="hidden">
+              {shopRows.filter((r) => r.totalBags > 0).length === 0 ? (
+                <p className="rounded-[20px] bg-white px-4 py-8 text-center text-sm text-slate-500 shadow-md ring-1 ring-slate-100">
+                  No bag sales in this period{activeBrand ? ` for ${activeBrand.label}` : ''}.
+                </p>
+              ) : (
+                shopRows
+                  .filter((r) => r.totalBags > 0)
+                  .map((r) => (
+                    <MobileRowCard
+                      key={r.shop}
+                      title={r.shop}
+                      subtitle={r.location || '—'}
+                      fields={[
+                        ...visibleBrands.slice(0, 4).map((b) => ({
+                          label: b.label,
+                          value: r[`${b.key}Bags`].toLocaleString(),
+                        })),
+                        { label: 'Total bags', value: r.totalBags.toLocaleString() },
+                        { label: 'Bills', value: r.billCount },
+                      ]}
+                    />
+                  ))
+              )}
+            </div>
+            <div className={`hidden sm:block ${scrollTableWrap}`}>
               <table className="w-full min-w-[800px] border-separate border-spacing-0 text-left text-sm">
                 <thead className={stickyThead}>
                   <tr className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    <th className="whitespace-nowrap px-4 py-3">Shop</th>
+                    <th className={`whitespace-nowrap px-4 py-3 ${stickyFirstTh}`}>Shop</th>
                     <th className="whitespace-nowrap px-4 py-3">Location</th>
                     {visibleBrands.map((b) => (
                       <th key={b.key} className="whitespace-nowrap px-4 py-3 text-right">
@@ -2519,7 +2752,7 @@ export default function ReportsPage() {
                       .filter((r) => r.totalBags > 0)
                       .map((r) => (
                       <tr key={r.shop} className="border-t border-slate-100 hover:bg-slate-50/80">
-                        <td className="whitespace-nowrap px-4 py-3 font-medium text-slate-900">{r.shop}</td>
+                        <td className={`whitespace-nowrap px-4 py-3 font-medium text-slate-900 ${stickyFirstTd}`}>{r.shop}</td>
                         <td className="whitespace-nowrap px-4 py-3 text-slate-600">{r.location || '—'}</td>
                         {visibleBrands.map((b) => (
                           <td key={b.key} className="whitespace-nowrap px-4 py-3 text-right tabular-nums">
@@ -2569,11 +2802,33 @@ export default function ReportsPage() {
             title="Credit sales per shop"
             subtitle={`Total credit bill amounts per customer in the selected period${activeBrand ? ` (${activeBrand.label} line totals only)` : ''}`}
           >
-            <div className={scrollTableWrap}>
+            <div className="hidden">
+              {shopRows.filter((r) => r.creditSales > 0).length === 0 ? (
+                <p className="rounded-[20px] bg-white px-4 py-8 text-center text-sm text-slate-500 shadow-md ring-1 ring-slate-100">
+                  No credit sales in this period.
+                </p>
+              ) : (
+                shopRows
+                  .filter((r) => r.creditSales > 0)
+                  .sort((a, b) => b.creditSales - a.creditSales)
+                  .map((r) => (
+                    <MobileRowCard
+                      key={r.shop}
+                      title={r.shop}
+                      subtitle={r.location || '—'}
+                      fields={[
+                        { label: 'Bills', value: r.billCount },
+                        { label: 'Credit sales', value: money(r.creditSales) },
+                      ]}
+                    />
+                  ))
+              )}
+            </div>
+            <div className={`hidden sm:block ${scrollTableWrap}`}>
               <table className="w-full min-w-[480px] border-separate border-spacing-0 text-left text-sm">
                 <thead className={stickyThead}>
                   <tr className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    <th className="whitespace-nowrap px-4 py-3">Shop</th>
+                    <th className={`whitespace-nowrap px-4 py-3 ${stickyFirstTh}`}>Shop</th>
                     <th className="whitespace-nowrap px-4 py-3">Location</th>
                     <th className="whitespace-nowrap px-4 py-3 text-right">Bills</th>
                     <th className="whitespace-nowrap px-4 py-3 text-right">Credit sales</th>
@@ -2592,7 +2847,7 @@ export default function ReportsPage() {
                       .sort((a, b) => b.creditSales - a.creditSales)
                       .map((r) => (
                         <tr key={r.shop} className="border-t border-slate-100 hover:bg-slate-50/80">
-                          <td className="whitespace-nowrap px-4 py-3 font-medium text-slate-900">{r.shop}</td>
+                          <td className={`whitespace-nowrap px-4 py-3 font-medium text-slate-900 ${stickyFirstTd}`}>{r.shop}</td>
                           <td className="whitespace-nowrap px-4 py-3 text-slate-600">{r.location || '—'}</td>
                           <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-slate-600">
                             {r.billCount}
@@ -2627,11 +2882,33 @@ export default function ReportsPage() {
             title="Cash in per shop"
             subtitle="Payments received (cash + cheque) per customer in the selected period"
           >
-            <div className={scrollTableWrap}>
+            <div className="hidden">
+              {shopRows.filter((r) => r.cashIn > 0).length === 0 ? (
+                <p className="rounded-[20px] bg-white px-4 py-8 text-center text-sm text-slate-500 shadow-md ring-1 ring-slate-100">
+                  No payments in this period.
+                </p>
+              ) : (
+                shopRows
+                  .filter((r) => r.cashIn > 0)
+                  .sort((a, b) => b.cashIn - a.cashIn)
+                  .map((r) => (
+                    <MobileRowCard
+                      key={r.shop}
+                      title={r.shop}
+                      subtitle={r.location || '—'}
+                      fields={[
+                        { label: 'Payments', value: r.paymentCount },
+                        { label: 'Cash in', value: money(r.cashIn) },
+                      ]}
+                    />
+                  ))
+              )}
+            </div>
+            <div className={`hidden sm:block ${scrollTableWrap}`}>
               <table className="w-full min-w-[480px] border-separate border-spacing-0 text-left text-sm">
                 <thead className={stickyThead}>
                   <tr className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    <th className="whitespace-nowrap px-4 py-3">Shop</th>
+                    <th className={`whitespace-nowrap px-4 py-3 ${stickyFirstTh}`}>Shop</th>
                     <th className="whitespace-nowrap px-4 py-3">Location</th>
                     <th className="whitespace-nowrap px-4 py-3 text-right">Payments</th>
                     <th className="whitespace-nowrap px-4 py-3 text-right">Cash in</th>
@@ -2650,7 +2927,7 @@ export default function ReportsPage() {
                       .sort((a, b) => b.cashIn - a.cashIn)
                       .map((r) => (
                         <tr key={r.shop} className="border-t border-slate-100 hover:bg-slate-50/80">
-                          <td className="whitespace-nowrap px-4 py-3 font-medium text-slate-900">{r.shop}</td>
+                          <td className={`whitespace-nowrap px-4 py-3 font-medium text-slate-900 ${stickyFirstTd}`}>{r.shop}</td>
                           <td className="whitespace-nowrap px-4 py-3 text-slate-600">{r.location || '—'}</td>
                           <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-slate-600">
                             {r.paymentCount}
@@ -2700,11 +2977,30 @@ export default function ReportsPage() {
                 <p className="mt-1 text-xl font-bold tabular-nums text-slate-900">{money(bankDailyTotals.totalIncome)}</p>
               </div>
             </div>
-            <div className={scrollTableWrap}>
+            <div className="hidden">
+              {bankDailyRows.length === 0 ? (
+                <p className="rounded-[20px] bg-white px-4 py-8 text-center text-sm text-slate-500 shadow-md ring-1 ring-slate-100">
+                  No cash deposits in this period.
+                </p>
+              ) : (
+                bankDailyRows.map((r) => (
+                  <MobileRowCard
+                    key={r.date}
+                    title={r.date}
+                    fields={[
+                      { label: 'Cash in', value: money(r.cashIn) },
+                      { label: 'Bank deposit', value: money(r.bankDeposit) },
+                      { label: 'Total income', value: money(r.totalIncome) },
+                    ]}
+                  />
+                ))
+              )}
+            </div>
+            <div className={`hidden sm:block ${scrollTableWrap}`}>
               <table className="w-full min-w-[640px] border-separate border-spacing-0 text-left text-sm">
                 <thead className={stickyThead}>
                   <tr className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    <th className="whitespace-nowrap px-4 py-3">Payment date</th>
+                    <th className={`whitespace-nowrap px-4 py-3 ${stickyFirstTh}`}>Payment date</th>
                     <th className="whitespace-nowrap px-4 py-3 text-right">Cash in</th>
                     <th className="whitespace-nowrap px-4 py-3 text-right">Bank deposit</th>
                     <th className="whitespace-nowrap px-4 py-3 text-right">Total income (cash + cheque)</th>
@@ -2720,7 +3016,7 @@ export default function ReportsPage() {
                   ) : (
                     bankDailyRows.map((r) => (
                       <tr key={r.date} className="border-t border-slate-100 hover:bg-slate-50/80">
-                        <td className="whitespace-nowrap px-4 py-3 font-medium tabular-nums text-slate-900">{r.date}</td>
+                        <td className={`whitespace-nowrap px-4 py-3 font-medium tabular-nums text-slate-900 ${stickyFirstTd}`}>{r.date}</td>
                         <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-emerald-800">
                           {money(r.cashIn)}
                         </td>
@@ -2737,7 +3033,7 @@ export default function ReportsPage() {
                 {bankDailyRows.length > 0 ? (
                   <tfoot>
                     <tr className="border-t-2 border-slate-200 bg-slate-50/90 font-semibold text-slate-900">
-                      <td className="px-4 py-3">Total</td>
+                      <td className={`px-4 py-3 ${stickyFirstTd}`}>Total</td>
                       <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">{money(bankDailyTotals.cashIn)}</td>
                       <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">{money(bankDailyTotals.bankDeposit)}</td>
                       <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">{money(bankDailyTotals.totalIncome)}</td>
@@ -2759,11 +3055,32 @@ export default function ReportsPage() {
                 {pendingChequeRows.length} cheque{pendingChequeRows.length === 1 ? '' : 's'} awaiting bank deposit
               </p>
             </div>
-            <div className={scrollTableWrap}>
+            <div className="hidden">
+              {pendingChequeRows.length === 0 ? (
+                <p className="rounded-[20px] bg-white px-4 py-8 text-center text-sm text-slate-500 shadow-md ring-1 ring-slate-100">
+                  No cheques pending deposit in this period.
+                </p>
+              ) : (
+                pendingChequeRows.map((r) => (
+                  <MobileRowCard
+                    key={r.id}
+                    title={r.customerName}
+                    subtitle={r.chequeDate}
+                    fields={[
+                      { label: 'Amount', value: money(r.amount) },
+                      { label: 'Cheque #', value: r.chequeNumber },
+                      { label: 'Bill #', value: r.billNumber },
+                      { label: 'Payment date', value: r.paymentDate },
+                    ]}
+                  />
+                ))
+              )}
+            </div>
+            <div className={`hidden sm:block ${scrollTableWrap}`}>
               <table className="w-full min-w-[880px] border-separate border-spacing-0 text-left text-sm">
                 <thead className={stickyThead}>
                   <tr className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    <th className="whitespace-nowrap px-4 py-3">Cheque date</th>
+                    <th className={`whitespace-nowrap px-4 py-3 ${stickyFirstTh}`}>Cheque date</th>
                     <th className="whitespace-nowrap px-4 py-3 text-right">Amount</th>
                     <th className="whitespace-nowrap px-4 py-3 font-mono">Cheque #</th>
                     <th className="px-4 py-3">Customer</th>
@@ -2781,7 +3098,7 @@ export default function ReportsPage() {
                   ) : (
                     pendingChequeRows.map((r) => (
                       <tr key={r.id} className="border-t border-slate-100 hover:bg-slate-50/80">
-                        <td className="whitespace-nowrap px-4 py-3 tabular-nums font-medium text-slate-900">{r.chequeDate}</td>
+                        <td className={`whitespace-nowrap px-4 py-3 tabular-nums font-medium text-slate-900 ${stickyFirstTd}`}>{r.chequeDate}</td>
                         <td className="whitespace-nowrap px-4 py-3 text-right font-semibold tabular-nums text-violet-800">
                           {money(r.amount)}
                         </td>
@@ -2796,7 +3113,7 @@ export default function ReportsPage() {
                 {pendingChequeRows.length > 0 ? (
                   <tfoot>
                     <tr className="border-t-2 border-slate-200 bg-slate-50/90 font-semibold text-slate-900">
-                      <td className="px-4 py-3">Total</td>
+                      <td className={`px-4 py-3 ${stickyFirstTd}`}>Total</td>
                       <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-violet-800">
                         {money(pendingChequeTotal)}
                       </td>
@@ -2809,6 +3126,7 @@ export default function ReportsPage() {
           </Card>
         </>
       )}
+      </div>
     </div>
   );
 }

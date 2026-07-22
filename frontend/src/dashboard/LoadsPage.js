@@ -3,12 +3,19 @@ import { getApiBase } from '../apiBase';
 import { getUsername } from '../auth';
 import { BRANDS } from './brandTheme';
 import {
+  LoadingSpinner,
   TableFiltersBar,
   TablePaginationBar,
   filterControl,
+  filterLabel,
+  filterLabelNarrow,
   inDateRange,
+  mobileCardList,
+  MobileRowCard,
   rowMatchesQuery,
   scrollTableWrap,
+  stickyFirstTdMuted,
+  stickyFirstThTransparent,
   stickyTheadTransparent,
   useTablePagination,
   modalPanelClass4xl,
@@ -310,13 +317,11 @@ export default function LoadsPage() {
   return (
     <div className="space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-sm text-slate-500">
-          Track load dispatches, vehicle assignments, bag counts, and costs per brand.
-        </p>
+        <p className="text-sm text-slate-500">Track stock loads, vehicles, bags, and costs per brand.</p>
         <button
           type="button"
           onClick={openModal}
-          className="inline-flex shrink-0 items-center justify-center rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/25 transition hover:brightness-[1.03]"
+          className="inline-flex w-full shrink-0 items-center justify-center rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/25 transition hover:brightness-[1.03] sm:w-auto"
         >
           Add a Stock
         </button>
@@ -335,7 +340,7 @@ export default function LoadsPage() {
             : null
         }
       >
-        <label className="block min-w-[220px] flex-1 text-sm font-medium text-slate-600">
+        <label className={filterLabel}>
           Search
           <input
             type="search"
@@ -345,7 +350,7 @@ export default function LoadsPage() {
             className={filterControl}
           />
         </label>
-        <label className="block min-w-[140px] text-sm font-medium text-slate-600">
+        <label className={filterLabelNarrow}>
           From date
           <input
             type="date"
@@ -354,7 +359,7 @@ export default function LoadsPage() {
             className={filterControl}
           />
         </label>
-        <label className="block min-w-[140px] text-sm font-medium text-slate-600">
+        <label className={filterLabelNarrow}>
           To date
           <input
             type="date"
@@ -366,11 +371,54 @@ export default function LoadsPage() {
       </TableFiltersBar>
 
       <div className="space-y-3">
-      <div className={scrollTableWrap}>
+      <div className={mobileCardList}>
+        {loading ? (
+          <p className="rounded-2xl bg-white px-4 py-8 text-center text-sm text-slate-500 ring-1 ring-slate-100">
+            <LoadingSpinner />
+          </p>
+        ) : rows.length === 0 ? (
+          <p className="rounded-2xl bg-white px-4 py-8 text-center text-sm text-slate-500 ring-1 ring-slate-100">
+            No stock loads yet. Use &quot;Add a Stock&quot; to create a record.
+          </p>
+        ) : filteredRows.length === 0 ? (
+          <p className="rounded-2xl bg-white px-4 py-8 text-center text-sm text-slate-500 ring-1 ring-slate-100">
+            No loads match your search or filters.
+          </p>
+        ) : (
+          pagedRows.map((r) => {
+            const brandBags = BRANDS.map((b) => `${b.label}: ${r[`${b.key}Bags`] ?? 0}`).join(' · ');
+            return (
+              <MobileRowCard
+                key={r.id}
+                title={r.stockId || `Load #${r.id}`}
+                subtitle={`${r.date} · ${r.vehicleNumber || '—'}`}
+                onClick={() => setDetailRow(r)}
+                fields={[
+                  { label: 'Total', value: money(r.totalAmount) },
+                  { label: 'Added by', value: r.addedBy || '—' },
+                  { label: 'Bags by brand', value: brandBags },
+                  {
+                    label: 'Tokyo / Samudra',
+                    value: `${r.tokyoBags ?? 0} / ${r.samudraBags ?? 0}`,
+                  },
+                  {
+                    label: 'Atlas / Nippon',
+                    value: `${r.atlasBags ?? 0} / ${r.nipponBags ?? 0}`,
+                  },
+                ]}
+              />
+            );
+          })
+        )}
+      </div>
+      <div className={`hidden sm:block ${scrollTableWrap}`}>
         <table className="w-full min-w-[1680px] border-separate border-spacing-0 text-left text-sm">
           <thead className={stickyTheadTransparent}>
             <tr className="border-b border-slate-100 bg-slate-50/90 text-xs font-semibold uppercase tracking-wide text-slate-500">
-              <th rowSpan={2} className="whitespace-nowrap px-3 py-3 align-bottom">
+              <th
+                rowSpan={2}
+                className={`whitespace-nowrap px-3 py-3 align-bottom ${stickyFirstThTransparent}`}
+              >
                 Date
               </th>
               <th rowSpan={2} className="whitespace-nowrap px-3 py-3 align-bottom">
@@ -410,7 +458,7 @@ export default function LoadsPage() {
             {loading ? (
               <tr>
                 <td colSpan={21} className="px-4 py-10 text-center text-slate-500">
-                  Loading…
+                  <LoadingSpinner />
                 </td>
               </tr>
             ) : rows.length === 0 ? (
@@ -435,7 +483,7 @@ export default function LoadsPage() {
                     aria-label={`Load ${r.stockId ?? r.id ?? ''} details`}
                   >
                     <td
-                      className={`whitespace-nowrap px-3 py-3 font-medium ${rowLine} bg-slate-50/70 text-slate-800`}
+                      className={`whitespace-nowrap px-3 py-3 font-medium ${rowLine} bg-slate-50/70 text-slate-800 ${stickyFirstTdMuted}`}
                     >
                       {r.date}
                     </td>
@@ -489,7 +537,7 @@ export default function LoadsPage() {
           {!loading && filteredRows.length > 0 ? (
             <tfoot>
               <tr className="border-t-2 border-slate-200 font-semibold text-slate-900">
-                <td colSpan={3} className="bg-slate-100/80 px-3 py-3">
+                <td colSpan={3} className={`bg-slate-100/80 px-3 py-3 ${stickyFirstTdMuted}`}>
                   Totals (filtered)
                 </td>
                 {BRANDS.map((b) => (

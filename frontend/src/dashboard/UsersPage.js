@@ -3,11 +3,17 @@ import { Navigate } from 'react-router-dom';
 import { getApiBase } from '../apiBase';
 import { authFetch, getUsername, isAdmin } from '../auth';
 import {
+  LoadingSpinner,
   TableFiltersBar,
   TablePaginationBar,
   filterControl,
+  filterLabel,
+  mobileCardList,
+  MobileRowCard,
   rowMatchesQuery,
   scrollTableWrap,
+  stickyFirstTd,
+  stickyFirstTh,
   stickyThead,
   useTablePagination,
   modalPanelClassMd,
@@ -133,15 +139,12 @@ export default function UsersPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <p className="max-w-xl text-sm leading-relaxed text-slate-500">
-          Staff accounts have the same access as the admin, except only the environment admin can add or remove
-          users here. Usernames are stored lowercase in <code className="text-xs">backend/data/users.json</code>.
-        </p>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <p className="text-sm text-slate-500">Add and manage staff accounts for dashboard access.</p>
         <button
           type="button"
           onClick={openModal}
-          className="rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-indigo-500/25 transition hover:bg-indigo-700"
+          className="inline-flex w-full shrink-0 items-center justify-center rounded-xl bg-indigo-600 px-4 py-2.5 sm:w-auto text-sm font-semibold text-white shadow-md shadow-indigo-500/25 transition hover:bg-indigo-700"
         >
           Add user
         </button>
@@ -154,7 +157,7 @@ export default function UsersPage() {
             : null
         }
       >
-        <label className="block min-w-[200px] flex-1 text-sm font-medium text-slate-600">
+        <label className={filterLabel}>
           Search
           <input
             type="search"
@@ -173,14 +176,58 @@ export default function UsersPage() {
       ) : null}
 
       {loading ? (
-        <p className="text-sm text-slate-500">Loading…</p>
+        <div className="flex justify-center py-16">
+          <LoadingSpinner size="lg" />
+        </div>
       ) : (
         <div className="space-y-3">
-        <div className={scrollTableWrap}>
+        <div className={mobileCardList}>
+          {filteredRows.length === 0 ? (
+            <p className="rounded-2xl bg-white px-4 py-8 text-center text-sm text-slate-500 ring-1 ring-slate-100">
+              {rows.length === 0 ? 'No staff users yet. Add one with the button above.' : 'No matches.'}
+            </p>
+          ) : (
+            pagedRows.map((r) => {
+              const isSelf = r.username === selfName;
+              const addedAt = r.createdAt ? String(r.createdAt).slice(0, 19).replace('T', ' ') : '—';
+              return (
+                <MobileRowCard
+                  key={r.id}
+                  title={r.username}
+                  subtitle={isSelf ? 'You (if staff)' : undefined}
+                  fields={[
+                    { label: 'Added', value: addedAt },
+                    { label: 'Created by', value: r.createdBy || '—' },
+                  ]}
+                  actions={
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setDetailUser(r)}
+                        className="rounded-lg px-3 py-1.5 text-xs font-semibold text-indigo-700 transition hover:bg-indigo-50"
+                      >
+                        Details
+                      </button>
+                      <button
+                        type="button"
+                        disabled={deletingId === r.id}
+                        onClick={() => handleDelete(r.id)}
+                        className="rounded-lg px-3 py-1.5 text-xs font-semibold text-rose-600 transition hover:bg-rose-50 disabled:opacity-50"
+                      >
+                        {deletingId === r.id ? 'Removing…' : 'Remove'}
+                      </button>
+                    </>
+                  }
+                />
+              );
+            })
+          )}
+        </div>
+        <div className={`hidden sm:block ${scrollTableWrap}`}>
           <table className="w-full min-w-[640px] border-separate border-spacing-0 text-left text-sm">
             <thead className={stickyThead}>
               <tr className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                <th className="py-3 pl-4 pr-3">Username</th>
+                <th className={`py-3 pl-4 pr-3 ${stickyFirstTh}`}>Username</th>
                 <th className="py-3 pr-3">Added</th>
                 <th className="py-3 pr-3">Created by</th>
                 <th className="py-3 pr-4 text-right">Actions</th>
@@ -202,7 +249,7 @@ export default function UsersPage() {
                       {...detailRowAttrs(() => setDetailUser(r), 'text-slate-700')}
                       aria-label={`User ${r.username || ''}`}
                     >
-                      <td className="py-3.5 pl-4 pr-3 font-mono text-sm font-semibold text-slate-900">
+                      <td className={`py-3.5 pl-4 pr-3 font-mono text-sm font-semibold text-slate-900 ${stickyFirstTd}`}>
                         {r.username}
                         {isSelf ? (
                           <span className="ml-2 text-xs font-normal text-slate-400">(you, if staff)</span>
@@ -247,7 +294,7 @@ export default function UsersPage() {
 
       {modalOpen ? (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 p-4 backdrop-blur-sm sm:items-center"
           role="dialog"
           aria-modal="true"
           aria-labelledby="users-modal-title"

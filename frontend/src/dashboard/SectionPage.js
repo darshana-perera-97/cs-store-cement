@@ -7,9 +7,8 @@ export default function SectionPage({ title, description }) {
 
   return (
     <div className="space-y-6">
-      <p className="text-sm leading-relaxed text-slate-500">
-        {description ||
-          `Overview and actions for ${title}. Connect your data to populate this view.`}
+      <p className="text-sm text-slate-500">
+        {description || `Overview and actions for ${title}.`}
       </p>
       <div className="grid gap-4 sm:grid-cols-3">
         {stats.map((s) => (

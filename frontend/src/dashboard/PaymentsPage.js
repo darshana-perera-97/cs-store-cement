@@ -3,12 +3,19 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { getApiBase } from '../apiBase';
 import { getUsername } from '../auth';
 import {
+  LoadingSpinner,
   TableFiltersBar,
   TablePaginationBar,
   filterControl,
+  filterLabel,
+  filterLabelNarrow,
   inDateRange,
+  mobileCardList,
+  MobileRowCard,
   rowMatchesQuery,
   scrollTableWrap,
+  stickyFirstTd,
+  stickyFirstTh,
   stickyThead,
   useTablePagination,
   modalPanelClass,
@@ -333,15 +340,11 @@ export default function PaymentsPage() {
   return (
     <div className="space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-sm text-slate-500">
-          All payments are saved to <span className="font-medium text-slate-700">payments.json</span> on the server and
-          lower each customer&apos;s amount to pay. Each payment needs a unique 3-digit bill number (e.g.{' '}
-          <span className="font-mono">001</span>).
-        </p>
+        <p className="text-sm text-slate-500">Record cash and cheque payments against customer balances.</p>
         <button
           type="button"
           onClick={openModal}
-          className="inline-flex shrink-0 items-center justify-center rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/25 transition hover:brightness-[1.03]"
+          className="inline-flex w-full shrink-0 items-center justify-center rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/25 transition hover:brightness-[1.03] sm:w-auto"
         >
           Record payment
         </button>
@@ -360,7 +363,7 @@ export default function PaymentsPage() {
             : null
         }
       >
-        <label className="block min-w-[200px] flex-1 text-sm font-medium text-slate-600">
+        <label className={filterLabel}>
           Search
           <input
             type="search"
@@ -370,7 +373,7 @@ export default function PaymentsPage() {
             className={filterControl}
           />
         </label>
-        <label className="block min-w-[140px] text-sm font-medium text-slate-600">
+        <label className={filterLabelNarrow}>
           From date
           <input
             type="date"
@@ -379,7 +382,7 @@ export default function PaymentsPage() {
             className={filterControl}
           />
         </label>
-        <label className="block min-w-[140px] text-sm font-medium text-slate-600">
+        <label className={filterLabelNarrow}>
           To date
           <input
             type="date"
@@ -388,7 +391,7 @@ export default function PaymentsPage() {
             className={filterControl}
           />
         </label>
-        <label className="block min-w-[180px] flex-1 text-sm font-medium text-slate-600">
+        <label className={filterLabel}>
           Customer
           <select
             value={customerFilter}
@@ -406,11 +409,57 @@ export default function PaymentsPage() {
       </TableFiltersBar>
 
       <div className="space-y-3">
-      <div className={scrollTableWrap}>
+      <div className={mobileCardList}>
+        {loading ? (
+          <p className="rounded-2xl bg-white px-4 py-8 text-center text-sm text-slate-500 ring-1 ring-slate-100">
+            <LoadingSpinner />
+          </p>
+        ) : rows.length === 0 ? (
+          <p className="rounded-2xl bg-white px-4 py-8 text-center text-sm text-slate-500 ring-1 ring-slate-100">
+            No payments yet. Record one to update customer balances.
+          </p>
+        ) : filteredRows.length === 0 ? (
+          <p className="rounded-2xl bg-white px-4 py-8 text-center text-sm text-slate-500 ring-1 ring-slate-100">
+            No payments match your search or filters.
+          </p>
+        ) : (
+          pagedRows.map((r) => (
+            <MobileRowCard
+              key={r.id}
+              title={r.customerName || '—'}
+              subtitle={`${r.date || '—'} · Bill #${r.billNumber || '—'}`}
+              fields={[
+                { label: 'Amount', value: `−${money(r.amount)}` },
+                { label: 'Recorded by', value: r.recordedBy || '—' },
+              ]}
+              actions={
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setDetailPayment(r)}
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
+                  >
+                    Details
+                  </button>
+                  {r.customerId ? (
+                    <Link
+                      to={`/dashboard/customers/${encodeURIComponent(r.customerId)}`}
+                      className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 transition hover:bg-indigo-100"
+                    >
+                      Customer
+                    </Link>
+                  ) : null}
+                </>
+              }
+            />
+          ))
+        )}
+      </div>
+      <div className={`hidden sm:block ${scrollTableWrap}`}>
         <table className="w-full min-w-[720px] border-separate border-spacing-0 text-left text-sm">
           <thead className={stickyThead}>
             <tr className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              <th className="whitespace-nowrap px-4 py-3">Date</th>
+              <th className={`whitespace-nowrap px-4 py-3 ${stickyFirstTh}`}>Date</th>
               <th className="whitespace-nowrap px-4 py-3 font-mono">Bill #</th>
               <th className="px-4 py-3">Customer</th>
               <th className="whitespace-nowrap px-4 py-3 text-right">Amount</th>
@@ -422,7 +471,7 @@ export default function PaymentsPage() {
             {loading ? (
               <tr>
                 <td colSpan={6} className="px-4 py-10 text-center text-slate-500">
-                  Loading…
+                  <LoadingSpinner />
                 </td>
               </tr>
             ) : rows.length === 0 ? (
@@ -444,7 +493,7 @@ export default function PaymentsPage() {
                   {...detailRowAttrs(() => setDetailPayment(r), 'hover:bg-slate-50/80')}
                   aria-label={`Payment ${r.billNumber || r.id || ''}`}
                 >
-                  <td className="whitespace-nowrap px-4 py-3 tabular-nums">{r.date}</td>
+                  <td className={`whitespace-nowrap px-4 py-3 tabular-nums ${stickyFirstTd}`}>{r.date}</td>
                   <td className="whitespace-nowrap px-4 py-3 font-mono text-sm font-semibold tabular-nums text-slate-800">
                     {r.billNumber || '—'}
                   </td>

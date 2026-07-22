@@ -1,12 +1,19 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { getApiBase } from '../apiBase';
 import {
+  LoadingSpinner,
   TableFiltersBar,
   TablePaginationBar,
   filterControl,
+  filterLabel,
+  filterLabelNarrow,
   inDateRange,
+  mobileCardList,
+  MobileRowCard,
   rowMatchesQuery,
   scrollTableWrap,
+  stickyFirstTd,
+  stickyFirstTh,
   stickyThead,
   useTablePagination,
 } from './tableToolbar';
@@ -73,9 +80,7 @@ export default function CashOutPage() {
 
   return (
     <div className="space-y-5">
-      <p className="text-sm text-slate-500">
-        Cheques recorded when adding stock loads. Converting dates come from the Add a stock load form.
-      </p>
+      <p className="text-sm text-slate-500">Track load cheques and their converting dates.</p>
 
       {error ? (
         <p className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-800 ring-1 ring-red-100" role="alert">
@@ -90,11 +95,37 @@ export default function CashOutPage() {
             Total amount to convert on today&apos;s date and future converting dates.
           </p>
         </div>
-        <div className={scrollTableWrap}>
+        <div className={mobileCardList}>
+          {loading ? (
+            <p className="rounded-2xl bg-white px-4 py-8 text-center text-sm text-slate-500 ring-1 ring-slate-100">
+              <LoadingSpinner />
+            </p>
+          ) : upcomingRows.length === 0 ? (
+            <p className="rounded-2xl bg-white px-4 py-8 text-center text-sm text-slate-500 ring-1 ring-slate-100">
+              No cheques due for conversion today or in the future.
+            </p>
+          ) : (
+            <>
+              {upcomingRows.map((r) => (
+                <MobileRowCard
+                  key={r.convertingDate}
+                  title={r.convertingDate}
+                  fields={[{ label: 'Amount to convert', value: money(r.amount) }]}
+                />
+              ))}
+              <MobileRowCard
+                title="Grand total"
+                fields={[{ label: 'Amount', value: money(upcomingGrandTotal) }]}
+                className="ring-indigo-100"
+              />
+            </>
+          )}
+        </div>
+        <div className={`hidden sm:block ${scrollTableWrap}`}>
           <table className="w-full min-w-[420px] border-separate border-spacing-0 text-left text-sm">
             <thead className={stickyThead}>
               <tr className="border-b border-slate-100 bg-slate-50/90 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                <th className="whitespace-nowrap px-4 py-3">Converting date</th>
+                <th className={`whitespace-nowrap px-4 py-3 ${stickyFirstTh}`}>Converting date</th>
                 <th className="whitespace-nowrap px-4 py-3 text-right">Amount to convert</th>
               </tr>
             </thead>
@@ -102,7 +133,7 @@ export default function CashOutPage() {
               {loading ? (
                 <tr>
                   <td colSpan={2} className="px-4 py-10 text-center text-slate-500">
-                    Loading…
+                    <LoadingSpinner />
                   </td>
                 </tr>
               ) : upcomingRows.length === 0 ? (
@@ -114,7 +145,9 @@ export default function CashOutPage() {
               ) : (
                 upcomingRows.map((r) => (
                   <tr key={r.convertingDate} className="bg-white">
-                    <td className="whitespace-nowrap px-4 py-3 tabular-nums font-medium">{r.convertingDate}</td>
+                    <td className={`whitespace-nowrap px-4 py-3 tabular-nums font-medium ${stickyFirstTd}`}>
+                      {r.convertingDate}
+                    </td>
                     <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums font-medium">{money(r.amount)}</td>
                   </tr>
                 ))
@@ -142,7 +175,7 @@ export default function CashOutPage() {
             : null
         }
       >
-        <label className="block min-w-[220px] flex-1 text-sm font-medium text-slate-600">
+        <label className={filterLabel}>
           Search
           <input
             type="search"
@@ -152,7 +185,7 @@ export default function CashOutPage() {
             className={filterControl}
           />
         </label>
-        <label className="block min-w-[140px] text-sm font-medium text-slate-600">
+        <label className={filterLabelNarrow}>
           From date
           <input
             type="date"
@@ -161,7 +194,7 @@ export default function CashOutPage() {
             className={filterControl}
           />
         </label>
-        <label className="block min-w-[140px] text-sm font-medium text-slate-600">
+        <label className={filterLabelNarrow}>
           To date
           <input
             type="date"
@@ -172,11 +205,38 @@ export default function CashOutPage() {
         </label>
       </TableFiltersBar>
 
-      <div className={scrollTableWrap}>
+      <div className={mobileCardList}>
+        {loading ? (
+          <p className="rounded-2xl bg-white px-4 py-8 text-center text-sm text-slate-500 ring-1 ring-slate-100">
+            <LoadingSpinner />
+          </p>
+        ) : chequeRows.length === 0 ? (
+          <p className="rounded-2xl bg-white px-4 py-8 text-center text-sm text-slate-500 ring-1 ring-slate-100">
+            No cheques yet. Add a stock load with cheque numbers in Loads.
+          </p>
+        ) : filteredRows.length === 0 ? (
+          <p className="rounded-2xl bg-white px-4 py-8 text-center text-sm text-slate-500 ring-1 ring-slate-100">
+            No cheques match your search or filters.
+          </p>
+        ) : (
+          pagedRows.map((r) => (
+            <MobileRowCard
+              key={r.rowKey}
+              title={r.chequeNumber || '—'}
+              subtitle={r.date || '—'}
+              fields={[
+                { label: 'Converting date', value: r.convertingDate || '—' },
+                { label: 'Amount', value: money(r.amount) },
+              ]}
+            />
+          ))
+        )}
+      </div>
+      <div className={`hidden sm:block ${scrollTableWrap}`}>
         <table className="w-full min-w-[640px] border-separate border-spacing-0 text-left text-sm">
           <thead className={stickyThead}>
             <tr className="border-b border-slate-100 bg-slate-50/90 text-xs font-semibold uppercase tracking-wide text-slate-500">
-              <th className="whitespace-nowrap px-4 py-3">Date</th>
+              <th className={`whitespace-nowrap px-4 py-3 ${stickyFirstTh}`}>Date</th>
               <th className="whitespace-nowrap px-4 py-3">Cheque number</th>
               <th className="whitespace-nowrap px-4 py-3">Converting date</th>
               <th className="whitespace-nowrap px-4 py-3 text-right">Amount</th>
@@ -186,7 +246,7 @@ export default function CashOutPage() {
             {loading ? (
               <tr>
                 <td colSpan={4} className="px-4 py-10 text-center text-slate-500">
-                  Loading…
+                  <LoadingSpinner />
                 </td>
               </tr>
             ) : chequeRows.length === 0 ? (
@@ -204,7 +264,9 @@ export default function CashOutPage() {
             ) : (
               pagedRows.map((r) => (
                 <tr key={r.rowKey} className="bg-white">
-                  <td className="whitespace-nowrap px-4 py-3 tabular-nums font-medium">{r.date || '—'}</td>
+                  <td className={`whitespace-nowrap px-4 py-3 tabular-nums font-medium ${stickyFirstTd}`}>
+                    {r.date || '—'}
+                  </td>
                   <td className="whitespace-nowrap px-4 py-3">{r.chequeNumber}</td>
                   <td className="whitespace-nowrap px-4 py-3 tabular-nums">{r.convertingDate || '—'}</td>
                   <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums font-medium">{money(r.amount)}</td>

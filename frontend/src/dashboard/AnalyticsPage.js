@@ -19,12 +19,18 @@ import { getUsername } from '../auth';
 import { depositQueueRowKey } from './paymentCheques';
 import { BRANDS } from './brandTheme';
 import {
+  LoadingSpinner,
   TableFiltersBar,
   TablePaginationBar,
   filterControl,
+  filterLabel,
+  mobileCardList,
+  MobileRowCard,
   pageSizeOptionsWith,
   rowMatchesQuery,
   scrollTableWrap,
+  stickyFirstTd,
+  stickyFirstTh,
   stickyThead,
   useTablePagination,
 } from './tableToolbar';
@@ -116,16 +122,18 @@ function overdueDaysFromBillDate(row) {
 function Card({ title, subtitle, children, className = '', headerExtra = null }) {
   return (
     <div
-      className={`rounded-[20px] bg-white p-5 shadow-lg shadow-slate-200/40 ring-1 ring-slate-100 sm:p-6 ${className}`}
+      className={`min-w-0 rounded-[20px] bg-white p-4 shadow-lg shadow-slate-200/40 ring-1 ring-slate-100 sm:p-6 ${className}`}
     >
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 flex-1">
           <h2 className="text-sm font-bold text-slate-900">{title}</h2>
           {subtitle ? <p className="mt-0.5 text-xs text-slate-500">{subtitle}</p> : null}
         </div>
-        {headerExtra ? <div className="shrink-0 pt-0.5">{headerExtra}</div> : null}
+        {headerExtra ? (
+          <div className="w-full min-w-0 sm:w-auto sm:shrink-0 sm:pt-0.5">{headerExtra}</div>
+        ) : null}
       </div>
-      <div className="mt-4">{children}</div>
+      <div className="mt-4 min-w-0">{children}</div>
     </div>
   );
 }
@@ -140,11 +148,41 @@ function OverdueBillsTable({ rows, totalLoadedCount, defaultPageSize = 10, reset
 
   return (
     <div className="space-y-3">
-      <div className={`-mx-1 ${scrollTableWrap}`}>
+      <div className={mobileCardList}>
+        {rows.length === 0 ? (
+          <p className="rounded-2xl bg-white px-4 py-8 text-center text-sm text-slate-500 ring-1 ring-slate-100">
+            {totalLoadedCount === 0 ? 'No overdue bills.' : 'No rows match your search.'}
+          </p>
+        ) : (
+          pagedRows.map((row) => (
+            <MobileRowCard
+              key={row.id}
+              title={row.customerName || '—'}
+              subtitle={row.details || undefined}
+              badge={
+                <span className="inline-flex items-center rounded-lg bg-rose-50 px-2 py-1 text-xs font-semibold tabular-nums text-rose-700 ring-1 ring-rose-100">
+                  {row.daysOverdue ?? '—'}d overdue
+                </span>
+              }
+              onClick={() => setDetailRow(row)}
+              fields={[
+                { label: 'Bill date', value: row.billDate || '—' },
+                { label: 'Due date', value: row.dueDate || '—' },
+                {
+                  label: 'Days from bill',
+                  value: overdueDaysFromBillDate(row) ?? '—',
+                },
+                { label: 'Outstanding', value: formatLkrExact(row.outstandingAmount) },
+              ]}
+            />
+          ))
+        )}
+      </div>
+      <div className={`-mx-1 hidden sm:block ${scrollTableWrap}`}>
         <table className="w-full min-w-[900px] border-separate border-spacing-0 text-left text-sm">
           <thead className={stickyThead}>
             <tr className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-              <th className="pb-3 pl-1 pr-3">Customer</th>
+              <th className={`pb-3 pl-1 pr-3 ${stickyFirstTh}`}>Customer</th>
               <th className="pb-3 pr-3">Bill details</th>
               <th className="pb-3 pr-3">Bill date</th>
               <th className="pb-3 pr-3 text-right">Days from bill date</th>
@@ -167,7 +205,7 @@ function OverdueBillsTable({ rows, totalLoadedCount, defaultPageSize = 10, reset
                 {...detailRowAttrs(() => setDetailRow(row), 'text-slate-700')}
                 aria-label={`Overdue row ${row.customerName || ''}`}
               >
-                <td className="max-w-[140px] py-3.5 pl-1 pr-3 font-semibold text-slate-900">
+                <td className={`max-w-[140px] py-3.5 pl-1 pr-3 font-semibold text-slate-900 ${stickyFirstTd}`}>
                   <span className="line-clamp-2">{row.customerName}</span>
                 </td>
                 <td className="max-w-[260px] py-3.5 pr-3 text-xs leading-snug text-slate-600 sm:text-sm">
@@ -419,7 +457,7 @@ export default function AnalyticsPage() {
   const showOverdueViewAll = overdueBills.length > OVERDUE_VIEW_ALL_THRESHOLD;
 
   const overdueSearchInput = (
-    <label className="block min-w-[220px] flex-1 text-sm font-medium text-slate-600">
+    <label className={filterLabel}>
       Search
       <input
         type="search"
@@ -432,13 +470,13 @@ export default function AnalyticsPage() {
   );
 
   const backButtonClass =
-    'inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm ring-1 ring-slate-100 transition hover:bg-slate-50';
+    'inline-flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm ring-1 ring-slate-100 transition hover:bg-slate-50 sm:w-auto sm:justify-start';
 
   const viewAllButtonClass =
-    'rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-md shadow-indigo-500/25 transition hover:bg-indigo-700';
+    'inline-flex w-full items-center justify-center rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-indigo-500/25 transition hover:bg-indigo-700 sm:w-auto sm:py-2';
 
   const downloadPdfButtonClass =
-    'rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm ring-1 ring-slate-100 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50';
+    'inline-flex w-full items-center justify-center rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 shadow-sm ring-1 ring-slate-100 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto sm:px-4 sm:py-2';
 
   const handleDownloadOverduePdf = useCallback(() => {
     downloadOverdueBillsPdf(overdueBills);
@@ -449,7 +487,7 @@ export default function AnalyticsPage() {
   }, [pendingBills]);
 
   const overdueDownloadButtons = (
-    <div className="flex flex-wrap items-center justify-end gap-2">
+    <>
       <button
         type="button"
         className={downloadPdfButtonClass}
@@ -466,8 +504,11 @@ export default function AnalyticsPage() {
       >
         Download Overdue Bills
       </button>
-    </div>
+    </>
   );
+
+  const overdueActionsClass =
+    'flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center sm:justify-end';
 
   if (overdueListView === 'full') {
     return (
@@ -488,7 +529,7 @@ export default function AnalyticsPage() {
         <Card
           title={`Overdue bills (${overdueBills.length})`}
           subtitle="Full list — same per-customer overdue rules as the dashboard summary."
-          headerExtra={overdueDownloadButtons}
+          headerExtra={<div className={overdueActionsClass}>{overdueDownloadButtons}</div>}
         >
           <TableFiltersBar
             className="!bg-slate-50/90 shadow-none"
@@ -505,7 +546,7 @@ export default function AnalyticsPage() {
             {overdueSearchInput}
           </TableFiltersBar>
           {cashDashLoading ? (
-            <div className="mt-4 py-10 text-center text-sm text-slate-500">Loading…</div>
+            <div className="mt-4 py-10 text-center text-sm text-slate-500"><LoadingSpinner /></div>
           ) : (
             <div className="mt-4">
               <OverdueBillsTable rows={filteredOverdueBills} totalLoadedCount={overdueBills.length} resetKey={overdueSearch} />
@@ -525,7 +566,7 @@ export default function AnalyticsPage() {
           className="lg:col-span-2"
         >
           {cashDashLoading ? (
-            <div className="flex h-[240px] items-center justify-center text-sm text-slate-500">Loading…</div>
+            <div className="flex h-[240px] items-center justify-center text-sm text-slate-500"><LoadingSpinner /></div>
           ) : (
             <div className="h-[240px] w-full">
               <ResponsiveContainer width="100%" height="100%">
@@ -572,7 +613,7 @@ export default function AnalyticsPage() {
           subtitle="Customer money still owed versus payments recorded (same totals as Your card)"
         >
           {cashDashLoading ? (
-            <div className="flex h-[240px] items-center justify-center text-sm text-slate-500">Loading…</div>
+            <div className="flex h-[240px] items-center justify-center text-sm text-slate-500"><LoadingSpinner /></div>
           ) : !donutModel.hasData ? (
             <div className="flex h-[240px] flex-col items-center justify-center px-3 text-center text-sm text-slate-500">
               <p>No data yet.</p>
@@ -642,7 +683,7 @@ export default function AnalyticsPage() {
           className="lg:col-span-3"
         >
           {cashDashLoading ? (
-            <div className="flex h-[260px] items-center justify-center text-sm text-slate-500">Loading…</div>
+            <div className="flex h-[260px] items-center justify-center text-sm text-slate-500"><LoadingSpinner /></div>
           ) : (
             <div className="h-[260px] w-full">
               <ResponsiveContainer width="100%" height="100%">
@@ -706,7 +747,7 @@ export default function AnalyticsPage() {
           className="lg:col-span-2"
         >
           {cashDashLoading ? (
-            <div className="flex min-h-[200px] items-center justify-center text-sm text-slate-500">Loading…</div>
+            <div className="flex min-h-[200px] items-center justify-center text-sm text-slate-500"><LoadingSpinner /></div>
           ) : recentTransfers.length === 0 ? (
             <p className="py-6 text-center text-sm text-slate-500">
               No payments or stock purchases yet. They will appear here in chronological order.
@@ -761,18 +802,48 @@ export default function AnalyticsPage() {
           </p>
         ) : null}
         {cashDashLoading ? (
-          <div className="py-8 text-center text-sm text-slate-500">Loading…</div>
+          <div className="py-8 text-center text-sm text-slate-500"><LoadingSpinner /></div>
         ) : chequeDepositQueue.items.length === 0 ? (
           <p className="py-6 text-center text-sm text-slate-500">
             Nothing due for the bank run — either no cheques dated today or in the next 2 days, or they are already
             marked as deposited.
           </p>
         ) : (
-          <div className={scrollTableWrap}>
+          <>
+          <div className={mobileCardList}>
+            {chequeDepositQueue.items.map((row) => {
+              const rowKey = depositQueueRowKey(row);
+              return (
+                <MobileRowCard
+                  key={rowKey}
+                  title={row.customerName || '—'}
+                  subtitle={`Bill #${row.billNumber || '—'} · Cheque #${row.chequeNumber || '—'}`}
+                  fields={[
+                    {
+                      label: 'Cheque date',
+                      value: String(row.chequeDate || '').slice(0, 10) || '—',
+                    },
+                    { label: 'Amount', value: formatLkrExact(Number(row.chequeAmount) || 0) },
+                  ]}
+                  actions={
+                    <button
+                      type="button"
+                      disabled={!!markingChequeId}
+                      onClick={() => handleMarkChequeDeposited(row)}
+                      className="rounded-xl bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {markingChequeId === rowKey ? 'Saving…' : 'Mark deposited'}
+                    </button>
+                  }
+                />
+              );
+            })}
+          </div>
+          <div className={`hidden sm:block ${scrollTableWrap}`}>
             <table className="w-full min-w-[640px] border-separate border-spacing-0 text-left text-sm">
               <thead className={stickyThead}>
                 <tr className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                  <th className="px-3 py-3">Customer</th>
+                  <th className={`px-3 py-3 ${stickyFirstTh}`}>Customer</th>
                   <th className="whitespace-nowrap px-3 py-3 font-mono">Bill #</th>
                   <th className="whitespace-nowrap px-3 py-3 font-mono">Cheque #</th>
                   <th className="whitespace-nowrap px-3 py-3">Cheque date</th>
@@ -783,7 +854,7 @@ export default function AnalyticsPage() {
               <tbody className="divide-y divide-slate-100 text-slate-800">
                 {chequeDepositQueue.items.map((row) => (
                   <tr key={depositQueueRowKey(row)} className="hover:bg-slate-50/80">
-                    <td className="max-w-[180px] px-3 py-3 font-medium text-slate-900">
+                    <td className={`max-w-[180px] px-3 py-3 font-medium text-slate-900 ${stickyFirstTd}`}>
                       <span className="line-clamp-2">{row.customerName || '—'}</span>
                     </td>
                     <td className="whitespace-nowrap px-3 py-3 font-mono text-xs tabular-nums">{row.billNumber || '—'}</td>
@@ -809,13 +880,14 @@ export default function AnalyticsPage() {
               </tbody>
             </table>
           </div>
+          </>
         )}
       </Card>
 
       <Card
         title="Overdue bills"
         headerExtra={
-          <div className="flex max-w-[min(100%,520px)] flex-wrap items-center justify-end gap-2">
+          <div className={overdueActionsClass}>
             {overdueDownloadButtons}
             {showOverdueViewAll ? (
               <button
@@ -841,13 +913,13 @@ export default function AnalyticsPage() {
                 ? 'No overdue bills — all are within payment terms or fully allocated by payments.'
                 : `Showing ${filteredOverdueBills.length} of ${overdueBills.length} overdue bill${
                     overdueBills.length === 1 ? '' : 's'
-                  }${overdueSearch.trim() ? ' (search)' : ''}. Use the table pagination below.`
+                  }${overdueSearch.trim() ? ' (search)' : ''}. Use pagination below.`
           }
         >
           {overdueSearchInput}
         </TableFiltersBar>
         {cashDashLoading ? (
-          <div className="mt-4 py-10 text-center text-sm text-slate-500">Loading…</div>
+          <div className="mt-4 py-10 text-center text-sm text-slate-500"><LoadingSpinner /></div>
         ) : (
           <div className="mt-4">
             <OverdueBillsTable rows={filteredOverdueBills} totalLoadedCount={overdueBills.length} resetKey={overdueSearch} />

@@ -53,7 +53,7 @@ async function sendCustomerEmail({ type, customer, record, remainingAmount }) {
       return null;
   }
 
-  const fromName = String(config.fromName ?? company.distributor ?? '').trim() || 'Chaminda Stores';
+  const fromName = String(config.fromName ?? company.distributor ?? '').trim() || String(process.env.SHOP_NAME || 'CS Store').trim() || 'CS Store';
   const fromAddress = String(config.from ?? config.user ?? '').trim();
 
   try {

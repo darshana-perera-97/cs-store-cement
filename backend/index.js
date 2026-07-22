@@ -83,12 +83,18 @@ const { readPromotions, writePromotions, sumAllPromotionBagsByBrand } = require(
 
 const app = express();
 const PORT = Number(process.env.PORT) || 1249;
+const SHOP_NAME = String(process.env.SHOP_NAME || 'CS Store').trim() || 'CS Store';
 
 app.use(cors({ origin: process.env.CORS_ORIGIN || true }));
 app.use(express.json());
 
 app.get('/api/health', (req, res) => {
   res.json({ ok: true, service: 'backend' });
+});
+
+/** Public app config (shop branding). No auth — used on login and chrome. */
+app.get('/api/config', (req, res) => {
+  res.json({ shopName: SHOP_NAME });
 });
 
 /** Aggregates for dashboard "Your card": receivables, stock spend, payments in */
@@ -2033,7 +2039,7 @@ app.put('/api/messages/email-config', async (req, res) => {
       user,
       pass,
       from: from || user,
-      fromName: fromName || 'Chaminda Stores',
+      fromName: fromName || SHOP_NAME,
     };
     await writeEmailConfig(next);
     res.json({ emailConfig: maskEmailConfig(next) });

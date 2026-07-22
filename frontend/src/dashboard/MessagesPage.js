@@ -1,11 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { getApiBase } from '../apiBase';
 import {
+  LoadingSpinner,
   TableFiltersBar,
   TablePaginationBar,
   filterControl,
+  filterLabel,
+  mobileCardList,
+  MobileRowCard,
   rowMatchesQuery,
   scrollTableWrap,
+  stickyFirstTd,
+  stickyFirstTh,
   stickyThead,
   useTablePagination,
 } from './tableToolbar';
@@ -345,11 +351,7 @@ export default function MessagesPage() {
 
   return (
     <div className="space-y-6">
-      <p className="text-sm text-slate-500">
-        Configure SMTP, WhatsApp, and company details used in customer notifications. Bills, payments, and free bag
-        promotions are sent automatically when a customer has an email address and/or contact number and notifications
-        are enabled.
-      </p>
+      <p className="text-sm text-slate-500">Configure email and WhatsApp notifications for customers.</p>
 
       {error ? (
         <p className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-800 ring-1 ring-red-100" role="alert">
@@ -406,7 +408,7 @@ export default function MessagesPage() {
             />
             <span className="text-sm font-medium text-slate-700">Enable customer email notifications</span>
           </label>
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="SMTP host" className="sm:col-span-2">
               <input
                 type="text"
@@ -535,7 +537,7 @@ export default function MessagesPage() {
               : null
           }
         >
-          <label className="block min-w-[220px] flex-1 text-sm font-medium text-slate-600">
+          <label className={filterLabel}>
             Search
             <input
               type="search"
@@ -547,11 +549,64 @@ export default function MessagesPage() {
           </label>
         </TableFiltersBar>
 
-        <div className={scrollTableWrap}>
+        <div className="space-y-3">
+        <div className={mobileCardList}>
+          {loading ? (
+            <p className="rounded-2xl bg-white px-4 py-8 text-center text-sm text-slate-500 ring-1 ring-slate-100">
+              <LoadingSpinner />
+            </p>
+          ) : sentEmails.length === 0 ? (
+            <p className="rounded-2xl bg-white px-4 py-8 text-center text-sm text-slate-500 ring-1 ring-slate-100">
+              No emails sent yet. Enable SMTP and record a bill, payment, or promotion for a customer with an email
+              address.
+            </p>
+          ) : filteredEmails.length === 0 ? (
+            <p className="rounded-2xl bg-white px-4 py-8 text-center text-sm text-slate-500 ring-1 ring-slate-100">
+              No emails match your search.
+            </p>
+          ) : (
+            pagedEmails.map((r) => {
+              const meta = TYPE_META[r.type] || { label: r.type || '—', badge: 'bg-slate-100 text-slate-600' };
+              const failed = r.status === 'failed';
+              return (
+                <MobileRowCard
+                  key={r.id}
+                  title={r.customerName || '—'}
+                  subtitle={formatSentAt(r.sentAt)}
+                  badge={
+                    <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-bold ring-1 ${meta.badge}`}>
+                      {meta.label}
+                    </span>
+                  }
+                  fields={[
+                    { label: 'To', value: r.to || '—' },
+                    { label: 'Subject', value: r.subject || '—' },
+                    {
+                      label: 'Status',
+                      value: (
+                        <span
+                          className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-bold ring-1 ${
+                            failed
+                              ? 'bg-rose-50 text-rose-800 ring-rose-100'
+                              : 'bg-emerald-50 text-emerald-800 ring-emerald-100'
+                          }`}
+                          title={failed ? r.error || 'Failed' : 'Sent'}
+                        >
+                          {failed ? 'Failed' : 'Sent'}
+                        </span>
+                      ),
+                    },
+                  ]}
+                />
+              );
+            })
+          )}
+        </div>
+        <div className={`hidden sm:block ${scrollTableWrap}`}>
           <table className="w-full min-w-[760px] border-separate border-spacing-0 text-left text-sm">
             <thead className={stickyThead}>
               <tr className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                <th className="px-4 py-3">Sent</th>
+                <th className={`px-4 py-3 ${stickyFirstTh}`}>Sent</th>
                 <th className="px-4 py-3">Type</th>
                 <th className="px-4 py-3">Customer</th>
                 <th className="px-4 py-3">To</th>
@@ -563,7 +618,7 @@ export default function MessagesPage() {
               {loading ? (
                 <tr>
                   <td colSpan={6} className="px-4 py-10 text-center text-slate-500">
-                    Loading…
+                    <LoadingSpinner />
                   </td>
                 </tr>
               ) : sentEmails.length === 0 ? (
@@ -585,7 +640,7 @@ export default function MessagesPage() {
                   const failed = r.status === 'failed';
                   return (
                     <tr key={r.id} className="hover:bg-slate-50/80">
-                      <td className="whitespace-nowrap px-4 py-3 tabular-nums text-slate-600">
+                      <td className={`whitespace-nowrap px-4 py-3 tabular-nums text-slate-600 ${stickyFirstTd}`}>
                         {formatSentAt(r.sentAt)}
                       </td>
                       <td className="px-4 py-3">
@@ -617,6 +672,7 @@ export default function MessagesPage() {
             </tbody>
           </table>
         </div>
+        </div>
 
         {!loading && sentEmails.length > 0 ? (
           <TablePaginationBar
@@ -643,7 +699,7 @@ export default function MessagesPage() {
               : null
           }
         >
-          <label className="block min-w-[220px] flex-1 text-sm font-medium text-slate-600">
+          <label className={filterLabel}>
             Search
             <input
               type="search"
@@ -655,11 +711,64 @@ export default function MessagesPage() {
           </label>
         </TableFiltersBar>
 
-        <div className={scrollTableWrap}>
+        <div className="space-y-3">
+        <div className={mobileCardList}>
+          {loading ? (
+            <p className="rounded-2xl bg-white px-4 py-8 text-center text-sm text-slate-500 ring-1 ring-slate-100">
+              <LoadingSpinner />
+            </p>
+          ) : sentWhatsapp.length === 0 ? (
+            <p className="rounded-2xl bg-white px-4 py-8 text-center text-sm text-slate-500 ring-1 ring-slate-100">
+              No WhatsApp messages sent yet. Enable WhatsApp, scan the QR code, and record a bill, payment, or
+              promotion for a customer with a contact number.
+            </p>
+          ) : filteredWhatsapp.length === 0 ? (
+            <p className="rounded-2xl bg-white px-4 py-8 text-center text-sm text-slate-500 ring-1 ring-slate-100">
+              No messages match your search.
+            </p>
+          ) : (
+            pagedWhatsapp.map((r) => {
+              const meta = TYPE_META[r.type] || { label: r.type || '—', badge: 'bg-slate-100 text-slate-600' };
+              const failed = r.status === 'failed';
+              return (
+                <MobileRowCard
+                  key={r.id}
+                  title={r.customerName || '—'}
+                  subtitle={formatSentAt(r.sentAt)}
+                  badge={
+                    <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-bold ring-1 ${meta.badge}`}>
+                      {meta.label}
+                    </span>
+                  }
+                  fields={[
+                    { label: 'To', value: r.to || '—' },
+                    { label: 'Preview', value: r.preview || '—' },
+                    {
+                      label: 'Status',
+                      value: (
+                        <span
+                          className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-bold ring-1 ${
+                            failed
+                              ? 'bg-rose-50 text-rose-800 ring-rose-100'
+                              : 'bg-emerald-50 text-emerald-800 ring-emerald-100'
+                          }`}
+                          title={failed ? r.error || 'Failed' : 'Sent'}
+                        >
+                          {failed ? 'Failed' : 'Sent'}
+                        </span>
+                      ),
+                    },
+                  ]}
+                />
+              );
+            })
+          )}
+        </div>
+        <div className={`hidden sm:block ${scrollTableWrap}`}>
           <table className="w-full min-w-[760px] border-separate border-spacing-0 text-left text-sm">
             <thead className={stickyThead}>
               <tr className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                <th className="px-4 py-3">Sent</th>
+                <th className={`px-4 py-3 ${stickyFirstTh}`}>Sent</th>
                 <th className="px-4 py-3">Type</th>
                 <th className="px-4 py-3">Customer</th>
                 <th className="px-4 py-3">To</th>
@@ -671,7 +780,7 @@ export default function MessagesPage() {
               {loading ? (
                 <tr>
                   <td colSpan={6} className="px-4 py-10 text-center text-slate-500">
-                    Loading…
+                    <LoadingSpinner />
                   </td>
                 </tr>
               ) : sentWhatsapp.length === 0 ? (
@@ -693,7 +802,7 @@ export default function MessagesPage() {
                   const failed = r.status === 'failed';
                   return (
                     <tr key={r.id} className="hover:bg-slate-50/80">
-                      <td className="whitespace-nowrap px-4 py-3 tabular-nums text-slate-600">
+                      <td className={`whitespace-nowrap px-4 py-3 tabular-nums text-slate-600 ${stickyFirstTd}`}>
                         {formatSentAt(r.sentAt)}
                       </td>
                       <td className="px-4 py-3">
@@ -724,6 +833,7 @@ export default function MessagesPage() {
               )}
             </tbody>
           </table>
+        </div>
         </div>
 
         {!loading && sentWhatsapp.length > 0 ? (

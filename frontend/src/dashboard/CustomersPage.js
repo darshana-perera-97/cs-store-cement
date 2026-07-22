@@ -3,11 +3,18 @@ import { useNavigate } from 'react-router-dom';
 import { getApiBase } from '../apiBase';
 import { getUsername } from '../auth';
 import {
+  LoadingSpinner,
   TableFiltersBar,
   TablePaginationBar,
   filterControl,
+  filterLabel,
+  filterLabelNarrow,
+  mobileCardList,
+  MobileRowCard,
   rowMatchesQuery,
   scrollTableWrap,
+  stickyFirstTd,
+  stickyFirstTh,
   stickyThead,
   useTablePagination,
   modalPanelClass,
@@ -151,15 +158,12 @@ export default function CustomersPage() {
   return (
     <div className="space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-sm text-slate-500">
-          Past bill is the opening amount owed. Remaining balance also includes credit bills (by customer name) and
-          recorded payments. Due date is set to 30 days from the day you add the customer (shown in the table).
-        </p>
+        <p className="text-sm text-slate-500">Manage customers, opening balances, and amounts owed.</p>
         <div className="flex shrink-0 flex-wrap gap-2">
           <button
             type="button"
             onClick={openModal}
-            className="inline-flex items-center justify-center rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/25 transition hover:brightness-[1.03]"
+            className="inline-flex w-full items-center justify-center rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/25 transition hover:brightness-[1.03] sm:w-auto"
           >
             Add customer
           </button>
@@ -179,7 +183,7 @@ export default function CustomersPage() {
             : null
         }
       >
-        <label className="block min-w-[220px] flex-1 text-sm font-medium text-slate-600">
+        <label className={filterLabel}>
           Search
           <input
             type="search"
@@ -189,7 +193,7 @@ export default function CustomersPage() {
             className={filterControl}
           />
         </label>
-        <label className="block min-w-[160px] text-sm font-medium text-slate-600">
+        <label className={filterLabelNarrow}>
           Due status
           <select
             value={dueFilter}
@@ -204,11 +208,66 @@ export default function CustomersPage() {
       </TableFiltersBar>
 
       <div className="space-y-3">
-      <div className={scrollTableWrap}>
+      <div className={mobileCardList}>
+        {loading ? (
+          <p className="rounded-2xl bg-white px-4 py-8 text-center text-sm text-slate-500 ring-1 ring-slate-100">
+            <LoadingSpinner />
+          </p>
+        ) : rows.length === 0 ? (
+          <p className="rounded-2xl bg-white px-4 py-8 text-center text-sm text-slate-500 ring-1 ring-slate-100">
+            No customers yet. Use &quot;Add customer&quot; to create a record.
+          </p>
+        ) : filteredRows.length === 0 ? (
+          <p className="rounded-2xl bg-white px-4 py-8 text-center text-sm text-slate-500 ring-1 ring-slate-100">
+            No customers match your search or filters.
+          </p>
+        ) : (
+          pagedRows.map((r) => {
+            const overdue = r.dueDate && r.dueDate < today;
+            return (
+              <MobileRowCard
+                key={r.id}
+                title={r.name}
+                subtitle={[r.location, r.contactNumber, r.email].filter(Boolean).join(' · ') || undefined}
+                badge={
+                  overdue ? (
+                    <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-rose-800">
+                      Overdue
+                    </span>
+                  ) : null
+                }
+                fields={[
+                  { label: 'Remaining', value: money(r.remainingAmount) },
+                  { label: 'Due date', value: r.dueDate || '—' },
+                ]}
+                actions={
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setDetailCustomer(r)}
+                      className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
+                    >
+                      Details
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/dashboard/customers/${encodeURIComponent(r.id)}`)}
+                      className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-800"
+                    >
+                      View account
+                    </button>
+                  </>
+                }
+              />
+            );
+          })
+        )}
+      </div>
+      <div className={`hidden sm:block ${scrollTableWrap}`}>
         <table className="w-full min-w-[640px] border-separate border-spacing-0 text-left text-sm">
           <thead className={stickyThead}>
             <tr className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              <th className="px-4 py-3">Customer name</th>
+              <th className={`px-4 py-3 ${stickyFirstTh}`}>Customer name</th>
               <th className="px-4 py-3 text-right">Remaining amount</th>
               <th className="whitespace-nowrap px-4 py-3">Due date</th>
               <th className="whitespace-nowrap px-4 py-3 text-center"> </th>
@@ -218,7 +277,7 @@ export default function CustomersPage() {
             {loading ? (
               <tr>
                 <td colSpan={4} className="px-4 py-10 text-center text-slate-500">
-                  Loading…
+                  <LoadingSpinner />
                 </td>
               </tr>
             ) : rows.length === 0 ? (
@@ -245,7 +304,7 @@ export default function CustomersPage() {
                     )}
                     aria-label={`Customer ${r.name || ''}`}
                   >
-                    <td className="px-4 py-3">
+                    <td className={`px-4 py-3 ${stickyFirstTd}`}>
                       <p className="font-semibold text-slate-900">{r.name}</p>
                       <p className="mt-0.5 text-xs text-slate-500">
                         {r.location}
@@ -327,7 +386,8 @@ export default function CustomersPage() {
                   {saveError}
                 </p>
               ) : null}
-              <label className="block text-sm font-medium text-slate-600">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <label className="block text-sm font-medium text-slate-600 sm:col-span-2">
                 Customer name
                 <input
                   type="text"
@@ -363,7 +423,7 @@ export default function CustomersPage() {
                   autoComplete="tel"
                 />
               </label>
-              <label className="block text-sm font-medium text-slate-600">
+              <label className="block text-sm font-medium text-slate-600 sm:col-span-2">
                 Email
                 <input
                   type="email"
@@ -374,7 +434,7 @@ export default function CustomersPage() {
                   autoComplete="email"
                 />
               </label>
-              <label className="block text-sm font-medium text-slate-600">
+              <label className="block text-sm font-medium text-slate-600 sm:col-span-2">
                 Past bill (amount to be paid)
                 <input
                   type="number"
@@ -387,6 +447,7 @@ export default function CustomersPage() {
                   placeholder="0.00"
                 />
               </label>
+              </div>
               <div className="flex flex-wrap justify-end gap-2 pt-2">
                 <button
                   type="button"

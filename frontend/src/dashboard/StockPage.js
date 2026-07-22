@@ -2,11 +2,17 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { getApiBase } from '../apiBase';
 import { BRANDS } from './brandTheme';
 import {
+  LoadingSpinner,
   TableFiltersBar,
   TablePaginationBar,
   filterControl,
+  filterLabel,
+  mobileCardList,
+  MobileRowCard,
   rowMatchesQuery,
   scrollTableWrap,
+  stickyFirstTdMuted,
+  stickyFirstThTransparent,
   stickyTheadTransparent,
   useTablePagination,
 } from './tableToolbar';
@@ -117,13 +123,7 @@ export default function StockPage() {
   return (
     <div className="space-y-6">
       <div>
-        <p className="text-sm text-slate-500">
-          Bag counts above come from{' '}
-          <code className="rounded bg-slate-100 px-1 py-0.5 text-xs text-slate-700">backend/data/liveStock.json</code>,
-          updated when you add a load, record a credit bill, or add a promotion (free bags). Original arrival quantities
-          stay on each load in{' '}
-          <span className="font-medium text-slate-700">Loads</span>.
-        </p>
+        <p className="text-sm text-slate-500">Live bag counts by brand, updated from loads, bills, and promotions.</p>
       </div>
 
       {error ? (
@@ -149,9 +149,7 @@ export default function StockPage() {
                   <span className={`inline-flex rounded-xl px-2.5 py-1 text-xs font-bold uppercase tracking-wide ${b.iconBg}`}>
                     {b.label}
                   </span>
-                  {loading ? (
-                    <span className="text-xs text-slate-400">…</span>
-                  ) : null}
+                  {loading ? <LoadingSpinner size="sm" labelHidden /> : null}
                 </div>
                 <p className="mt-4 text-3xl font-bold tracking-tight text-slate-900 tabular-nums">
                   {loading ? '—' : count.toLocaleString()}
@@ -187,7 +185,7 @@ export default function StockPage() {
             : null
         }
       >
-        <label className="block min-w-[200px] flex-1 text-sm font-medium text-slate-600">
+        <label className={filterLabel}>
           Search by date
           <input
             type="search"
@@ -197,7 +195,7 @@ export default function StockPage() {
             className={filterControl}
           />
         </label>
-        <label className="block min-w-[200px] text-sm font-medium text-slate-600">
+        <label className={filterLabel}>
           Ledger activity
           <select
             value={ledgerFilter}
@@ -212,11 +210,44 @@ export default function StockPage() {
       </TableFiltersBar>
 
       <div className="space-y-3">
-      <div className={scrollTableWrap}>
+      <div className={mobileCardList}>
+        {dailyLoading ? (
+          <p className="rounded-2xl bg-white px-4 py-8 text-center text-sm text-slate-500 ring-1 ring-slate-100">
+            <LoadingSpinner label="Loading daily ledger…" />
+          </p>
+        ) : dailyRowsDesc.length === 0 ? (
+          <p className="rounded-2xl bg-white px-4 py-8 text-center text-sm text-slate-500 ring-1 ring-slate-100">
+            No load dates yet. Add loads to see day-by-day balances.
+          </p>
+        ) : filteredDailyRows.length === 0 ? (
+          <p className="rounded-2xl bg-white px-4 py-8 text-center text-sm text-slate-500 ring-1 ring-slate-100">
+            No ledger rows match your search or filters.
+          </p>
+        ) : (
+          pagedDailyRows.map((day) => {
+            const fields = BRANDS.flatMap((b) => {
+              const cell = day.brands?.[b.key] || { start: 0, in: 0, out: 0, end: 0 };
+              return [
+                { label: `${b.label} start`, value: cell.start },
+                { label: `${b.label} end`, value: cell.end },
+              ];
+            });
+            return (
+              <MobileRowCard
+                key={day.date}
+                title={day.date}
+                onClick={() => setDetailLedgerDay(day)}
+                fields={fields}
+              />
+            );
+          })
+        )}
+      </div>
+      <div className={`hidden sm:block ${scrollTableWrap}`}>
         <table className="w-full min-w-[900px] border-separate border-spacing-0 text-left text-sm">
           <thead className={stickyTheadTransparent}>
             <tr className="border-b border-slate-100 bg-slate-50/90 text-xs font-semibold uppercase tracking-wide text-slate-500">
-              <th rowSpan={2} className="whitespace-nowrap px-3 py-3 align-bottom">
+              <th rowSpan={2} className={`whitespace-nowrap px-3 py-3 align-bottom ${stickyFirstThTransparent}`}>
                 Date
               </th>
               {BRANDS.map((b) => (
@@ -244,7 +275,7 @@ export default function StockPage() {
             {dailyLoading ? (
               <tr>
                 <td colSpan={17} className="px-4 py-10 text-center text-slate-500">
-                  Loading daily ledger…
+                  <LoadingSpinner label="Loading daily ledger…" />
                 </td>
               </tr>
             ) : dailyRowsDesc.length === 0 ? (
@@ -266,7 +297,9 @@ export default function StockPage() {
                   {...detailRowAttrs(() => setDetailLedgerDay(day))}
                   aria-label={`Daily ledger ${day.date}`}
                 >
-                  <td className="whitespace-nowrap border-b border-slate-100 bg-slate-50/70 px-3 py-3 font-medium tabular-nums text-slate-800">
+                  <td
+                    className={`whitespace-nowrap border-b border-slate-100 bg-slate-50/70 px-3 py-3 font-medium tabular-nums text-slate-800 ${stickyFirstTdMuted}`}
+                  >
                     {day.date}
                   </td>
                   {BRANDS.map((b) => {

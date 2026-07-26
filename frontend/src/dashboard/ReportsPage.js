@@ -16,6 +16,10 @@ import {
 import { buildChequeTableRows, chequePortion } from './paymentCheques';
 import { downloadCustomerOutstandingReport } from './customerOutstandingExport';
 import {
+  buildDailyBagsByShopBrandRows,
+  downloadDailyBagsByShopReport,
+} from './dailyBagsByShopExport';
+import {
   buildFinancialCashInRows,
   buildFinancialConvertingChequeRows,
   buildFinancialLoadPurchaseRows,
@@ -667,6 +671,8 @@ export default function ReportsPage() {
   const [stockDistBrand, setStockDistBrand] = useState('');
   const [stockDistMonthPurchasesOnly, setStockDistMonthPurchasesOnly] = useState(false);
   const [billsMonth, setBillsMonth] = useState(() => currentMonthValue());
+  const [dailyBagsMonth, setDailyBagsMonth] = useState(() => currentMonthValue());
+  const [dailyBagsBrand, setDailyBagsBrand] = useState('');
 
   const [fsPeriodMode, setFsPeriodMode] = useState('monthly');
   const [fsSelectedWeek, setFsSelectedWeek] = useState(() => currentIsoWeekValue());
@@ -845,6 +851,18 @@ export default function ReportsPage() {
   const billsMonthRange = useMemo(() => monthlyRangeFromMonthValue(billsMonth), [billsMonth]);
 
   const billsMonthLabel = useMemo(() => monthDisplayLabel(billsMonth), [billsMonth]);
+
+  const dailyBagsMonthLabel = useMemo(() => monthDisplayLabel(dailyBagsMonth), [dailyBagsMonth]);
+
+  const dailyBagsActiveBrand = useMemo(
+    () => BRANDS.find((b) => b.key === dailyBagsBrand) ?? null,
+    [dailyBagsBrand],
+  );
+
+  const dailyBagsReport = useMemo(
+    () => buildDailyBagsByShopBrandRows(bills, dailyBagsMonth, dailyBagsBrand),
+    [bills, dailyBagsMonth, dailyBagsBrand],
+  );
 
   const billSettledDateLookup = useMemo(
     () => buildBillSettledDateLookup(customers, bills, payments),
@@ -1348,6 +1366,20 @@ export default function ReportsPage() {
     );
   }, [billsMonth, billsMonthLabel, monthlyBillRows, monthlyBillTotals]);
 
+  const handleDownloadDailyBagsByShop = useCallback(() => {
+    downloadDailyBagsByShopReport(
+      {
+        monthLabel: dailyBagsMonthLabel,
+        brandLabel: dailyBagsActiveBrand ? dailyBagsActiveBrand.label : 'All brands',
+        daysInMonth: dailyBagsReport.daysInMonth,
+        rows: dailyBagsReport.rows,
+        dayTotals: dailyBagsReport.dayTotals,
+        grandTotal: dailyBagsReport.grandTotal,
+      },
+      { monthSlug: dailyBagsMonth },
+    );
+  }, [dailyBagsMonth, dailyBagsMonthLabel, dailyBagsActiveBrand, dailyBagsReport]);
+
   const handleDownloadStockDistribution = useCallback(() => {
     downloadStockDistributionPdf(
       {
@@ -1586,6 +1618,192 @@ export default function ReportsPage() {
                     {money(monthlyBillTotals.amount)}
                   </td>
                   <td className="px-4 py-3" colSpan={2} />
+                </tr>
+              </tfoot>
+            ) : null}
+          </table>
+        </div>
+      </Card>
+
+      <Card
+        title="Daily bags sold by shop"
+        subtitle={`Bags sold per shop and brand for each day of ${dailyBagsMonthLabel}${
+          dailyBagsActiveBrand ? ` · ${dailyBagsActiveBrand.label}` : ' · all brands'
+        }`}
+      >
+        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+          <label className={filterLabelNarrow}>
+            Month
+            <input
+              type="month"
+              value={dailyBagsMonth}
+              onChange={(e) => setDailyBagsMonth(e.target.value || currentMonthValue())}
+              className={filterControl}
+            />
+          </label>
+          <label className={filterLabelNarrow}>
+            Brand
+            <select
+              value={dailyBagsBrand}
+              onChange={(e) => setDailyBagsBrand(e.target.value)}
+              className={filterControl}
+            >
+              <option value="">All brands</option>
+              {BRANDS.map((b) => (
+                <option key={b.key} value={b.key}>
+                  {b.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            onClick={handleDownloadDailyBagsByShop}
+            disabled={loading || !!error}
+            className="rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Download report (PDF + Excel)
+          </button>
+        </div>
+
+        <div className="mt-5 space-y-3 sm:hidden">
+          {loading ? (
+            <p className="rounded-[20px] bg-white px-4 py-8 text-center text-sm text-slate-500 shadow-md ring-1 ring-slate-100">
+              <LoadingSpinner />
+            </p>
+          ) : dailyBagsReport.rows.length === 0 ? (
+            <p className="rounded-[20px] bg-white px-4 py-8 text-center text-sm text-slate-500 shadow-md ring-1 ring-slate-100">
+              No bags sold in {dailyBagsMonthLabel}.
+            </p>
+          ) : (
+            dailyBagsReport.rows.map((r) => {
+              const brand = BRANDS.find((b) => b.key === r.brandKey);
+              const soldDays = r.dayBags
+                .map((n, i) => (n > 0 ? { day: i + 1, bags: n } : null))
+                .filter(Boolean);
+              return (
+                <MobileRowCard
+                  key={r.rowKey}
+                  title={r.shop}
+                  subtitle={`${soldDays.length} day${soldDays.length === 1 ? '' : 's'} with sales`}
+                  badge={
+                    <span
+                      className={`inline-flex rounded-lg px-2.5 py-1 text-xs font-semibold ${
+                        brand?.iconBg || 'bg-slate-100 text-slate-700'
+                      }`}
+                    >
+                      {r.brand}
+                    </span>
+                  }
+                  fields={[
+                    { label: 'Month total', value: r.total.toLocaleString() },
+                    {
+                      label: 'By day',
+                      value:
+                        soldDays.length === 0
+                          ? '—'
+                          : soldDays.map((d) => `${d.day}: ${d.bags}`).join(' · '),
+                    },
+                  ]}
+                />
+              );
+            })
+          )}
+        </div>
+
+        <div className={`mt-5 hidden sm:block ${scrollTableWrap}`}>
+          <table
+            className="w-full border-separate border-spacing-0 text-left text-sm"
+            style={{ minWidth: `${220 + dailyBagsReport.daysInMonth * 36 + 64}px` }}
+          >
+            <thead className={stickyThead}>
+              <tr className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <th className={`whitespace-nowrap px-3 py-3 ${stickyFirstTh}`}>Shop name</th>
+                <th className="whitespace-nowrap px-3 py-3">Brand</th>
+                {Array.from({ length: dailyBagsReport.daysInMonth }, (_, i) => (
+                  <th key={i + 1} className="whitespace-nowrap px-2 py-3 text-center tabular-nums">
+                    {i + 1}
+                  </th>
+                ))}
+                <th className="whitespace-nowrap px-3 py-3 text-right">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td
+                    colSpan={dailyBagsReport.daysInMonth + 3}
+                    className="px-4 py-8 text-center text-slate-500"
+                  >
+                    <LoadingSpinner />
+                  </td>
+                </tr>
+              ) : dailyBagsReport.rows.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={dailyBagsReport.daysInMonth + 3}
+                    className="px-4 py-8 text-center text-slate-500"
+                  >
+                    No bags sold in {dailyBagsMonthLabel}.
+                  </td>
+                </tr>
+              ) : (
+                dailyBagsReport.rows.map((r) => {
+                  const brand = BRANDS.find((b) => b.key === r.brandKey);
+                  return (
+                    <tr key={r.rowKey} className="border-t border-slate-100 hover:bg-slate-50/80">
+                      {r.shopRowSpan > 0 ? (
+                        <td
+                          rowSpan={r.shopRowSpan}
+                          className={`whitespace-nowrap px-3 py-2.5 align-middle font-medium text-slate-900 ${stickyFirstTd}`}
+                        >
+                          {r.shop}
+                        </td>
+                      ) : null}
+                      <td className="whitespace-nowrap px-3 py-2.5">
+                        <span
+                          className={`inline-flex rounded-lg px-2.5 py-1 text-xs font-semibold ${
+                            brand?.iconBg || 'bg-slate-100 text-slate-700'
+                          }`}
+                        >
+                          {r.brand}
+                        </span>
+                      </td>
+                      {r.dayBags.map((n, i) => (
+                        <td
+                          key={i}
+                          className={`whitespace-nowrap px-2 py-2.5 text-center tabular-nums ${
+                            n > 0 ? 'font-medium text-slate-800' : 'text-slate-300'
+                          }`}
+                        >
+                          {n > 0 ? n.toLocaleString() : '—'}
+                        </td>
+                      ))}
+                      <td className="whitespace-nowrap px-3 py-2.5 text-right font-semibold tabular-nums text-slate-900">
+                        {r.total.toLocaleString()}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+            {!loading && dailyBagsReport.rows.length > 0 ? (
+              <tfoot>
+                <tr className="border-t-2 border-slate-200 bg-indigo-50/60 font-semibold text-slate-900">
+                  <td className="sticky left-0 z-[11] bg-indigo-50 px-3 py-3 shadow-[2px_0_4px_-2px_rgba(15,23,42,0.06)]" colSpan={2}>
+                    Total ({dailyBagsReport.shopCount || dailyBagsReport.rows.length} shop
+                    {(dailyBagsReport.shopCount || dailyBagsReport.rows.length) === 1 ? '' : 's'} ·{' '}
+                    {dailyBagsReport.rows.length} brand row
+                    {dailyBagsReport.rows.length === 1 ? '' : 's'})
+                  </td>
+                  {dailyBagsReport.dayTotals.map((n, i) => (
+                    <td key={i} className="whitespace-nowrap px-2 py-3 text-center tabular-nums">
+                      {n > 0 ? n.toLocaleString() : '—'}
+                    </td>
+                  ))}
+                  <td className="whitespace-nowrap px-3 py-3 text-right tabular-nums text-indigo-900">
+                    {dailyBagsReport.grandTotal.toLocaleString()}
+                  </td>
                 </tr>
               </tfoot>
             ) : null}

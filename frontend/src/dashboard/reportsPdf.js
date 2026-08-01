@@ -97,18 +97,17 @@ function drawLoadsSummary(doc, loadsReport, visibleBrands, startY) {
 
 function drawBagsPerShop(doc, shopRows, visibleBrands, shopTotals, startY) {
   const brandCols = visibleBrands.map((b) => `${b.label} bags`);
-  const head = [['Shop', 'Location', ...brandCols, 'Total bags', 'Bills']];
+  const head = [['Shop', 'Location', ...brandCols, 'Total bags']];
   const filtered = shopRows.filter((r) => r.totalBags > 0);
 
   const body =
     filtered.length === 0
-      ? [['—', '—', ...brandCols.map(() => '0'), '0', '0']]
+      ? [['—', '—', ...brandCols.map(() => '0'), '0']]
       : filtered.map((r) => [
           r.shop,
           r.location || '—',
           ...visibleBrands.map((b) => formatBags(r[`${b.key}Bags`])),
           formatBags(r.totalBags),
-          String(r.billCount),
         ]);
 
   const foot =
@@ -122,11 +121,10 @@ function drawBagsPerShop(doc, shopRows, visibleBrands, shopTotals, startY) {
               formatBags(filtered.reduce((s, r) => s + (r[`${b.key}Bags`] || 0), 0)),
             ),
             formatBags(shopTotals.totalBags),
-            String(filtered.reduce((s, r) => s + r.billCount, 0)),
           ],
         ];
 
-  const colCount = 4 + visibleBrands.length;
+  const colCount = 3 + visibleBrands.length;
   const pageW = doc.internal.pageSize.getWidth() - MARGIN * 2;
   const brandW = Math.min(18, (pageW - 90) / visibleBrands.length);
 
@@ -141,10 +139,63 @@ function drawBagsPerShop(doc, shopRows, visibleBrands, shopTotals, startY) {
       0: { cellWidth: 32 },
       1: { cellWidth: 28 },
       ...Object.fromEntries(visibleBrands.map((_, i) => [i + 2, { halign: 'right', cellWidth: brandW }])),
-      [colCount - 2]: { halign: 'right', cellWidth: 22 },
-      [colCount - 1]: { halign: 'right', cellWidth: 14 },
+      [colCount - 1]: { halign: 'right', cellWidth: 22 },
     },
   });
+}
+
+/**
+ * A4 portrait PDF — cement bags per shop table only.
+ */
+export function downloadBagsPerShopPdf(data, options = {}) {
+  const {
+    periodLabel = 'All dates',
+    brandLabel = 'All brands',
+    visibleBrands,
+    shopRows,
+    shopTotals,
+    generatedAt = new Date(),
+  } = data;
+
+  const doc = new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: 'a4',
+  });
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(16);
+  doc.setTextColor(15, 23, 42);
+  doc.text('Cement bags per shop', MARGIN, 16);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9);
+  doc.setTextColor(71, 85, 105);
+  const dateStr = generatedAt.toLocaleString(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  });
+  doc.text(`Generated: ${dateStr}`, MARGIN, 22);
+  doc.text(`Period: ${periodLabel}`, MARGIN, 27);
+  doc.text(`Bag type filter: ${brandLabel}`, MARGIN, 32);
+  doc.setTextColor(0, 0, 0);
+
+  const y = drawSectionTitle(
+    doc,
+    'Credit bill bags by shop',
+    'Bags sold to each customer (columns are bag types)',
+    40,
+  );
+  drawBagsPerShop(doc, shopRows, visibleBrands, shopTotals, y);
+
+  addPageFooters(doc);
+
+  const { dateFrom = '', dateTo = '' } = options;
+  const rangeSlug =
+    dateFrom && dateTo ? `${dateFrom}_to_${dateTo}` : dateFrom || dateTo || 'all-dates';
+  const brandSlug = brandLabel.toLowerCase().replace(/\s+/g, '-');
+  const safeDate = generatedAt.toISOString().slice(0, 10);
+  doc.save(`bags-per-shop-${rangeSlug}-${brandSlug}-${safeDate}.pdf`);
 }
 
 function drawCreditSales(doc, shopRows, shopTotals, startY) {

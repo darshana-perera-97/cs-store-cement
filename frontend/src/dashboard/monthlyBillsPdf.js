@@ -1,5 +1,6 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { buildMonthlyBillSettlementSummary } from './monthlyBillsSettlement';
 
 const MARGIN = 14;
 
@@ -48,6 +49,41 @@ function addPageFooters(doc) {
   }
 }
 
+function drawSettlementSummary(doc, settlementSummary, startY) {
+  const pageW = doc.internal.pageSize.getWidth() - MARGIN * 2;
+  const { rows, totals } = settlementSummary;
+  const head = [['Days to settle', 'Lines', 'Bag count', 'Amount']];
+  const body = rows.map((r) => [
+    r.label,
+    String(r.lineCount),
+    formatBags(r.bagCount),
+    moneyCell(r.amount),
+  ]);
+  const foot = [
+    [
+      'Total',
+      String(totals.lineCount),
+      formatBags(totals.bagCount),
+      moneyCell(totals.amount),
+    ],
+  ];
+
+  autoTable(doc, {
+    ...TABLE_OPTS,
+    head,
+    body,
+    foot,
+    startY,
+    tableWidth: pageW,
+    columnStyles: {
+      0: { cellWidth: pageW * 0.34 },
+      1: { halign: 'right', cellWidth: pageW * 0.14 },
+      2: { halign: 'right', cellWidth: pageW * 0.22 },
+      3: { halign: 'right', cellWidth: pageW * 0.3 },
+    },
+  });
+}
+
 /**
  * Monthly bills PDF: date, shop, bag type, bags, amount, settled date, days to settle.
  */
@@ -56,6 +92,7 @@ export function downloadMonthlyBillsPdf(data, options = {}) {
     monthLabel = '',
     rows = [],
     totals = { bagCount: 0, amount: 0 },
+    settlementSummary = buildMonthlyBillSettlementSummary(rows),
     generatedAt = new Date(),
   } = data;
 
@@ -135,6 +172,18 @@ export function downloadMonthlyBillsPdf(data, options = {}) {
       6: { halign: 'right', cellWidth: pageW - 28 - 48 - 28 - 26 - 36 - 36 },
     },
   });
+
+  const summaryY = (doc.lastAutoTable?.finalY ?? 38) + 12;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(11);
+  doc.setTextColor(15, 23, 42);
+  doc.text('Days to settle summary', MARGIN, summaryY);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  doc.setTextColor(71, 85, 105);
+  doc.text('Totals by settlement period (settled bills grouped by days from bill date)', MARGIN, summaryY + 5);
+  doc.setTextColor(0, 0, 0);
+  drawSettlementSummary(doc, settlementSummary, summaryY + 9);
 
   addPageFooters(doc);
 

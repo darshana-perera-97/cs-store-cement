@@ -27,7 +27,8 @@ import {
 import { downloadFinancialSummaryPdf } from './financialSummaryPdf';
 import { downloadLoadsSummaryPdf } from './loadsSummaryPdf';
 import { downloadMonthlyBillsPdf } from './monthlyBillsPdf';
-import { downloadReportsPdf } from './reportsPdf';
+import { buildMonthlyBillSettlementSummary } from './monthlyBillsSettlement';
+import { downloadBagsPerShopPdf, downloadReportsPdf } from './reportsPdf';
 import { downloadRefReport } from './reportsRefExport';
 import { downloadStockDistributionPdf } from './stockDistributionPdf';
 
@@ -886,6 +887,11 @@ export default function ReportsPage() {
     [monthlyBillRows],
   );
 
+  const monthlyBillSettlementSummary = useMemo(
+    () => buildMonthlyBillSettlementSummary(monthlyBillRows),
+    [monthlyBillRows],
+  );
+
   const stockDistActiveBrand = useMemo(
     () => BRANDS.find((b) => b.key === stockDistBrand) ?? null,
     [stockDistBrand],
@@ -1252,6 +1258,27 @@ export default function ReportsPage() {
     activeBrand ? `Brand: ${activeBrand.label}` : 'Brand: All brands',
   ].join(' · ');
 
+  const handleDownloadBagsPerShopPdf = useCallback(() => {
+    downloadBagsPerShopPdf(
+      {
+        periodLabel,
+        brandLabel: activeBrand ? activeBrand.label : 'All brands',
+        visibleBrands,
+        shopRows,
+        shopTotals,
+      },
+      { dateFrom: appliedFrom, dateTo: appliedTo },
+    );
+  }, [
+    appliedFrom,
+    appliedTo,
+    periodLabel,
+    activeBrand,
+    visibleBrands,
+    shopRows,
+    shopTotals,
+  ]);
+
   const handleDownloadPdf = useCallback(() => {
     downloadReportsPdf(
       {
@@ -1361,10 +1388,11 @@ export default function ReportsPage() {
         monthLabel: billsMonthLabel,
         rows: monthlyBillRows,
         totals: monthlyBillTotals,
+        settlementSummary: monthlyBillSettlementSummary,
       },
       { monthSlug: billsMonth },
     );
-  }, [billsMonth, billsMonthLabel, monthlyBillRows, monthlyBillTotals]);
+  }, [billsMonth, billsMonthLabel, monthlyBillRows, monthlyBillTotals, monthlyBillSettlementSummary]);
 
   const handleDownloadDailyBagsByShop = useCallback(() => {
     downloadDailyBagsByShopReport(
@@ -1622,6 +1650,96 @@ export default function ReportsPage() {
               </tfoot>
             ) : null}
           </table>
+        </div>
+
+        <div className="mt-8 border-t border-slate-200 pt-6">
+          <h3 className="text-sm font-semibold text-slate-900">Days to settle summary</h3>
+          <p className="mt-1 text-xs text-slate-500">
+            Totals by settlement period — settled bills grouped by days from bill date to payment
+          </p>
+
+          <div className="mt-4 hidden sm:block">
+            <table className="w-full max-w-xl border-separate border-spacing-0 text-left text-sm">
+              <thead>
+                <tr className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  <th className="whitespace-nowrap px-4 py-3">Days to settle</th>
+                  <th className="whitespace-nowrap px-4 py-3 text-right">Lines</th>
+                  <th className="whitespace-nowrap px-4 py-3 text-right">Bag count</th>
+                  <th className="whitespace-nowrap px-4 py-3 text-right">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loading ? (
+                  <tr>
+                    <td colSpan={4} className="px-4 py-6 text-center text-slate-500">
+                      <LoadingSpinner />
+                    </td>
+                  </tr>
+                ) : monthlyBillRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="px-4 py-6 text-center text-slate-500">
+                      No credit bills in {billsMonthLabel}.
+                    </td>
+                  </tr>
+                ) : (
+                  monthlyBillSettlementSummary.rows.map((r) => (
+                    <tr key={r.key} className="border-t border-slate-100 hover:bg-slate-50/80">
+                      <td className="whitespace-nowrap px-4 py-3 font-medium text-slate-900">{r.label}</td>
+                      <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-slate-600">
+                        {r.lineCount.toLocaleString()}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-slate-800">
+                        {r.bagCount.toLocaleString()}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-right font-semibold tabular-nums text-slate-900">
+                        {money(r.amount)}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+              {!loading && monthlyBillRows.length > 0 ? (
+                <tfoot>
+                  <tr className="border-t-2 border-slate-200 bg-indigo-50/60 font-semibold text-slate-900">
+                    <td className="px-4 py-3">Total</td>
+                    <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">
+                      {monthlyBillSettlementSummary.totals.lineCount.toLocaleString()}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">
+                      {monthlyBillSettlementSummary.totals.bagCount.toLocaleString()}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-indigo-900">
+                      {money(monthlyBillSettlementSummary.totals.amount)}
+                    </td>
+                  </tr>
+                </tfoot>
+              ) : null}
+            </table>
+          </div>
+
+          <div className="mt-4 sm:hidden">
+            {loading ? (
+              <p className="rounded-[20px] bg-white px-4 py-6 text-center text-sm text-slate-500 shadow-md ring-1 ring-slate-100">
+                <LoadingSpinner />
+              </p>
+            ) : monthlyBillRows.length === 0 ? (
+              <p className="rounded-[20px] bg-white px-4 py-6 text-center text-sm text-slate-500 shadow-md ring-1 ring-slate-100">
+                No credit bills in {billsMonthLabel}.
+              </p>
+            ) : (
+              monthlyBillSettlementSummary.rows.map((r) => (
+                <MobileRowCard
+                  key={r.key}
+                  title={r.label}
+                  fields={[
+                    { label: 'Lines', value: r.lineCount.toLocaleString() },
+                    { label: 'Bags', value: r.bagCount.toLocaleString() },
+                    { label: 'Amount', value: money(r.amount) },
+                  ]}
+                />
+              ))
+            )}
+          </div>
         </div>
       </Card>
 
@@ -2918,6 +3036,16 @@ export default function ReportsPage() {
             title="Cement bags per shop"
             subtitle={`Credit bill bags sold to each customer in the selected period${activeBrand ? ` (${activeBrand.label} only)` : ''}`}
           >
+            <div className="mb-4 flex flex-wrap items-end gap-2">
+              <button
+                type="button"
+                onClick={handleDownloadBagsPerShopPdf}
+                disabled={loading || !!error}
+                className="rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Download bags per shop (PDF)
+              </button>
+            </div>
             <div className="hidden">
               {shopRows.filter((r) => r.totalBags > 0).length === 0 ? (
                 <p className="rounded-[20px] bg-white px-4 py-8 text-center text-sm text-slate-500 shadow-md ring-1 ring-slate-100">
@@ -2937,7 +3065,6 @@ export default function ReportsPage() {
                           value: r[`${b.key}Bags`].toLocaleString(),
                         })),
                         { label: 'Total bags', value: r.totalBags.toLocaleString() },
-                        { label: 'Bills', value: r.billCount },
                       ]}
                     />
                   ))
@@ -2955,13 +3082,12 @@ export default function ReportsPage() {
                       </th>
                     ))}
                     <th className="whitespace-nowrap px-4 py-3 text-right">Total bags</th>
-                    <th className="whitespace-nowrap px-4 py-3 text-right">Bills</th>
                   </tr>
                 </thead>
                 <tbody>
                   {shopRows.filter((r) => r.totalBags > 0).length === 0 ? (
                     <tr>
-                      <td colSpan={visibleBrands.length + 4} className="px-4 py-8 text-center text-slate-500">
+                      <td colSpan={visibleBrands.length + 3} className="px-4 py-8 text-center text-slate-500">
                         No bag sales in this period{activeBrand ? ` for ${activeBrand.label}` : ''}.
                       </td>
                     </tr>
@@ -2979,9 +3105,6 @@ export default function ReportsPage() {
                         ))}
                         <td className="whitespace-nowrap px-4 py-3 text-right font-semibold tabular-nums text-slate-900">
                           {r.totalBags.toLocaleString()}
-                        </td>
-                        <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-slate-600">
-                          {r.billCount}
                         </td>
                       </tr>
                     ))
@@ -3005,9 +3128,6 @@ export default function ReportsPage() {
                       })}
                       <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">
                         {shopTotals.totalBags.toLocaleString()}
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">
-                        {shopRows.filter((r) => r.totalBags > 0).reduce((s, r) => s + r.billCount, 0)}
                       </td>
                     </tr>
                   </tfoot>
